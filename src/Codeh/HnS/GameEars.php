@@ -117,6 +117,38 @@ class GameEars implements Listener{
 		}
 	}
 	
+	public function onTeleport(EntityLevelChangeEvent $event)
+	{
+		if ($event->getEntity() instanceof Player) 
+		{
+			$player = $event->getEntity();
+			$from = $event->getOrigin()->getFolderName();
+			$to = $event->getTarget()->getFolderName();
+			if($this->arena == $from && $this->arena != $to)
+			{
+				$event->getEntity()->setGameMode(2);
+				$this->leaveArena($player);
+				$this->cleanPlayer($player);
+				return true;
+			}
+			if($this->arena == $to)
+			{
+				swich($this->gameState)
+				{
+					case 1:
+						$this->summon($player, "waiting");
+					break;
+					
+					case 2:
+						$player->sendMessage($this->prefix . $this->config->getNested("messages.game-running"));
+						return $event->setCancelled();
+					break;
+					
+				}
+			}
+		}
+	}
+	
 	public function testingCommands(PlayerCommandPreprocessEvent $event)
 	{
 		if($event->getPlayer()->isLoggedIn == false)
