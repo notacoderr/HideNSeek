@@ -1,30 +1,36 @@
 engine: true
 
 game:
-  prefix: "PDH Hide N Seek"
+  prefix: "Hide N Seek"
   min-players: 2
-  max-players: 5
-  time-to-start: 60
+  max-players: 10
+  time-to-wait: 30
   time-to-play: 300
-
+  time-to-hide: 30
+  #the times are in seconds
+  
 reward:
   enable: true
-  money: 10
+  money: 500
   commands: []
   
 arena:
-  world:
-  lobby:
+  world: "ChangeMeDaddy (wink wink)"
+  waiting:
     x:
     y:
     z:
-  hider-spawn:
+  hider:
     x:
     y:
     z:
-  seeker-spawn:
+  seeker:
     x:
     y:
     z:
     
- messages: []
+ messages:
+   teamWon: "{team} won the hide and seek"
+   seeker-found: "{player} found you, lmao"
+   hider-found: "you found {player}"
+   game-running: "sorry the game is already running"
