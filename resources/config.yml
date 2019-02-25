@@ -1,0 +1,30 @@
+engine: true
+
+game:
+  prefix: "PDH Hide N Seek"
+  min-players: 2
+  max-players: 5
+  time-to-start: 60
+  time-to-play: 300
+
+reward:
+  enable: true
+  money: 10
+  commands: []
+  
+arena:
+  world:
+  lobby:
+    x:
+    y:
+    z:
+  hider-spawn:
+    x:
+    y:
+    z:
+  seeker-spawn:
+    x:
+    y:
+    z:
+    
+ messages: []
