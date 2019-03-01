@@ -4,166 +4,222 @@ namespace Codeh\HnS;
 
 use pocketmine\{Server, Player};
 
-use pocketmine\utils\TextFormat;
-use pocketmine\math\Vector3;
-use pocketmine\level\Position;
-use pocketmine\Player;
-use pocketmine\tile\Sign;
 use pocketmine\level\Level;
-use pocketmine\item\Item;
+use pocketmine\utils\TextFormat;
 
-class GameSender extends pocketmine\scheduler\Task
+class GameSender extends \pocketmine\scheduler\Task
 {
-	public function __construct(\Codeh\HnS\HnS $plugin) {
-		$this->plugin = $plugin;
+	private $main;
+	
+	public function __construct(\Codeh\HnS\HnS $core) {
+		$this->main = $core;
 	}
 	public function onRun($tick)
 	{
-		$config = $this->plugin->getConfig();
-		$rbharenas = $config->get("rbharenas");
+		$running = $this->main->running;
     
-		if(!empty($rbharenas))
+		if(!empty($running))
 		{
-			foreach($rbharenas as $arena)
+			foreach($running as $arena)
 			{
-				$time = $config->get($arena . "PlayTime");
-				$mins = floor($time / 60 % 60);
-				$secs = floor($time % 60);
-				if($secs < 10){ $secs = "0".$secs; }
-				$timeToStart = $config->get($arena . "StartTime");
-				$levelArena = $this->plugin->getServer()->getLevelByName($arena);
-				if($levelArena instanceof Level)
+				#$timeToPlay = $arena["play-time"];
+				#$timeToWait = $arena["wait-time"];
+				#$timeToHide = $arena["hide-time"];
+				$game = $arena["game"];
+				$arenaworld = $this->main->arenadata->getWorld($game);
+				if(($levelArena = $this->main->getServer()->getLevelByName($arenaworld)) instanceof Level)
 				{
-					$playersArena = $levelArena->getPlayers();
-					if( count($playersArena) == 0)
+					$phase = $arena["phase"];
+					$playercount = $this->main->playercounts[$game];
+					$minplayer = $this->main->arenadata->getMin($game);
+					if($playercount == 0)
 					{
-						$config->set($arena . "PlayTime", $this->plugin->playtime);
-						$config->set($arena . "StartTime", 90);
+						if($arena["wait-time"] <> $this->main->waitTime) $arena["wait-time"] = $this->main->waitTime;
+						if($arena["hide-time"] <> $this->main->hideTime) $arena["hide-time"] = $this->main->hideTime;
+						if($arena["play-time"] <> $this->main->playTime) $arena["play-time"] = $this->main->playTime;
+						if($phase !== "WAIT") $arena["phase"] = "WAIT";
 					} else {
-						if(count($playersArena) >= 2)
+						if($playercount >= $minplayer)
 						{
-							if($timeToStart > 0) //TO DO fix player count and timer
+							$plist = $this->main->arenas[$game];
+							switch($phase)
 							{
-								$timeToStart--;
-								
-								switch($timeToStart)
-								{
-									case 10:
-										foreach($playersArena as $pl)
-										{
-											$pl->sendPopup($this->plugin->prefix . " §7•>§c Attention!§f your inventory will be wiped..");
-										}
-									break;
-									
-									case 7: //wipes inventory
-										foreach($playersArena as $pl)
-										{
-											$pl->getInventory()->clearAll();
-										}
-									break;
-									
-									case 5: //inserts bow
-										foreach($playersArena as $pl)
-										{
-											$this->plugin->insertBow($pl);
-										}
-									break;
-									
-									case 3: //inserts axe
-										foreach($playersArena as $pl)
-										{
-											$this->plugin->insertAxe($pl);
-										}
-									break;
-											//insert arrow is in playGame() function
-									default:
-										foreach($playersArena as $pl)
-										{
-											$pl->sendPopup("§l§7[ §f". $timeToStart ." seconds to start §7]");
-										}
-								}
-								
-								$config->set($arena . "StartTime", $timeToStart);
-							} else {
-								$aop = count($levelArena->getPlayers());
-								if($aop >= 2)
-								{
-									foreach($playersArena as $pla)
+								case "WAIT":
+									if($arena["wait-time"] > 0) //TO DO fix player count and timer
 									{
-										$pla->sendTip("§l§fK ".$this->plugin->kills[ $pla->getName() ]." : D ".$this->plugin->deaths[ $pla->getName() ]);
-										$pla->sendPopup("§l§7Game ends in: §b".$mins. "§f:§b" .$secs);
+										switch($arena["wait-time"])
+										{
+											
+											case 9:
+												foreach($levelArena->getPlayers() as $p)
+												{
+													$p->sendMessage($this->main->prefix . " > §a Game will start soon!");
+												}
+											break;
+											
+											case 7:
+												foreach($levelArena->getPlayers() as $p)
+												{
+													$p->setGameMode(2);
+												}
+											break;
+											case 5:
+												foreach($levelArena->getPlayers() as $p)
+												{
+													$p->addTitle(TextFormat::BOLD. TextFormat::GREEN . "READY", "§cO O O O O O O O O");
+												}
+											break;
+											case 4:
+												foreach($levelArena->getPlayers() as $p)
+												{
+													$p->addTitle(TextFormat::BOLD. TextFormat::GREEN . "READY", "§aO §cO O O O O O O §aO");
+												}
+												
+											break;
+											case 3:
+												foreach($levelArena->getPlayers() as $p)
+												{
+													$p->addTitle(TextFormat::BOLD. TextFormat::GREEN . "READY", "§aO O §cO O O O O §aO O");
+												}
+												
+											break;
+											case 2:
+												foreach($levelArena->getPlayers() as $p)
+												{
+													$p->addTitle(TextFormat::BOLD. TextFormat::GREEN . "READY","§aO O O §cO O O §aO O O ");
+												}
+											break;
+											case 1:
+												foreach($levelArena->getPlayers() as $p)
+												{
+													$player->addTitle(TextFormat::BOLD. TextFormat::GREEN . "READY", "§aO O O O §cO §aO O O O");
+													
+												}
+											break;
+											
+											case 0:
+												foreach($levelArena->getPlayers() as $p)
+												{
+													$p->addTitle(TextFormat::BOLD. TextFormat::GREEN . "HIDE", "§aO O O O O O O O O");
+												}
+												shuffle($plist["waiting"]);
+												$arena["phase"] = "HIDE";
+											break;
+
+											default:
+											foreach($levelArena->getPlayers() as $p)
+											{
+												$p->sendPopup("§l§7[ §f". $arena["wait-time"] ." seconds to start §7]");
+											}
+										}
+										$arena["wait-time"] -= 1;
 									}
-								}
-								
-								$time--;
-								switch($time)
-								{
-									case 299:
-										$this->plugin->assignSpawn($arena);
-										foreach($playersArena as $pl)
-										{
-											$pl->addTitle("§l§fRo§7b§fin §aHood","§l§fYou are playing on: §a" . $arena);
-										}
-									break;
-									
-									case 239:
-										foreach($playersArena as $pl)
-										{
-											$pl->addTitle("§l§7Countdown", "§b§l".$mins. "§f:§b" .$secs. "§f remaining");
-										}
-									break;
-									
-									case 179:
-										foreach($playersArena as $pl)
-										{
-											$pl->addTitle("§l§7Countdown", "§b§l".$mins. "§f:§b" .$secs. "§f remaining");
-										}
-									break;
-									
-									default:
-									if($time <= 0)
+								break;
+								case "HIDE":
+									if($arena["hide-time"] > 0)
 									{
-										$this->plugin->announceWinner($arena);
-										$spawn = $this->plugin->getServer()->getDefaultLevel()->getSafeSpawn();
-										$this->plugin->getServer()->getDefaultLevel()->loadChunk($spawn->getX(), $spawn->getZ());
-										foreach($playersArena as $pl)
+										if($arena["hide-time"] == 1)
 										{
-											$pl->addTitle("§lGame Over","§cYou have played on: §a" . $arena);
-											$pl->setHealth(20);
-											$this->plugin->leaveArena($pl);
+											$arena["phase"] = "PLAY";
+										} else {
+											if($arena["hide-time"] == ($this->main->hideTime - 1))
+											{
+												$seeker = $plist["waiting"][0]; # take the first one
+												unset($plist["waiting"][$seeker]);
+												$this->main->summon(Server::getInstance()->getPlayer($seeker), $game, "seeker");
+											}
+											
+											if($arena["hide-time"] == ($this->main->hideTime - 5))
+											{
+												foreach($plist["waiting"] as $n)
+												{
+													$pObj = Server::getInstance()->getPlayer($n);
+													unset($plist["waiting"][ $pObj->getName() ]);
+													$this->main->summon($pObj, $arena, "seeker");
+												}
+											}
+											
+											foreach($levelArena->getPlayers() as $p)
+											{
+												$p->addTitle(TextFormat::BOLD . TextFormat::GREEN . "H I D E", $arena["hide-time"] . " seconds to release the seeker");
+											}
 										}
-										$time = $this->plugin->playtime;
+										$arena["hide-time"] -= 1;
 									}
-								}
-								$config->set($arena . "PlayTime", $time);
+								break;
+								case "PLAY":
+										#$aop = count($levelArena->getPlayers());
+										# TO - DO
+										$time = $arena["play-time"];
+										$mins = floor($time / 60 % 60);
+										$secs = ($s = floor($time % 60)) < 10 ? "0" . $s : $s;
+										
+										if($playercount >= 2)
+										{
+											switch($arena["play-time"])
+											{
+												case 179:
+													foreach($levelArena->getPlayers() as $pl)
+													{
+														$pl->addTitle("§l§7Countdown", "§b§l".$mins. "§f:§b" .$secs. "§f remaining");
+													}
+												break;
+												default:
+												if($arena["play-time"] <= 0)
+												{
+													#game
+													$this->main->announceWinner($arena);
+													$spawn = $this->main->getServer()->getDefaultLevel()->getSafeSpawn();
+													$this->main->getServer()->getDefaultLevel()->loadChunk($spawn->getX(), $spawn->getZ());
+													foreach($levelArena->getPlayers() as $pl)
+													{
+														$pl->addTitle("§lGame Over","§cYou have played on: §a" . $game);
+														$pl->setHealth(20);
+														$this->main->leaveArena($pl);
+													}
+												} else {
+													foreach($levelArena->getPlayers() as $pla)
+													{
+														$pla->sendTip("§l§fSeekers: " . count($plist["seekers"]) . " : Hiders: " . count($plist["hiders"]));
+														$pla->sendPopup("§l§7Remaing time: §b".$mins. "§f : §b" .$secs);
+													}
+												}
+											}
+										}
+										$arena["play-time"] -= 1;
+								break;
 							}
+							
 						} else {
-							if($timeToStart <= 0)
+							if($arena["wait-time"] <= 0)
 							{
-								foreach($playersArena as $pl)
+								foreach($levelArena->getPlayers() as $pl)
 								{
-									$this->plugin->announceWinner($arena, $pl->getName());
+									$this->main->announceWinner($arena, $pl->getName());
 									$pl->setHealth(20);
-									$this->plugin->leaveArena($pl);
-									$this->plugin->api->addMoney($pl->getName(), mt_rand(390, 408));//bullshit
-									$this->plugin->givePrize($pl);
+									$this->main->leaveArena($pl);
+									$this->main->api->addMoney($pl->getName(), mt_rand(390, 408));//bullshit
+									$this->main->givePrize($pl);
 									//$this->getResetmap()->reload($levelArena);
 								}
-								$config->set($arena . "PlayTime", $this->plugin->playtime);
-								$config->set($arena . "StartTime", 90);
+								if($arena["wait-time"] <> $this->main->waitTime) $arena["wait-time"] = $this->main->waitTime;
+								if($arena["hide-time"] <> $this->main->hideTime) $arena["hide-time"] = $this->main->hideTime;
+								if($arena["play-time"] <> $this->main->playTime) $arena["play-time"] = $this->main->playTime;
+								if($phase !== "WAIT") $arena["phase"] = "WAIT";
 							} else {
-								foreach($playersArena as $pl)
+								foreach($levelArena->getPlayers() as $pl)
 								{
-									$pl->sendPopup("§e§l< §7need more player(s) to start§e >");
+									$pl->addTitle("","§e§l[ §7Requires ". $minplayer ." or more Player(s)§e ]");
 								}
-								$config->set($arena . "PlayTime", $this->plugin->playtime);
-								$config->set($arena . "StartTime", 90);
+								if($arena["wait-time"] <> $this->main->waitTime) $arena["wait-time"] = $this->main->waitTime;
+								if($arena["hide-time"] <> $this->main->hideTime) $arena["hide-time"] = $this->main->hideTime;
+								if($arena["play-time"] <> $this->main->playTime) $arena["play-time"] = $this->main->playTime;
+								if($phase !== "WAIT") $arena["phase"] = "WAIT";
 							}
 						}
-					}
+					} # to do not working
 				}
 			}
 		}
-		$config->save();
 	}
 }

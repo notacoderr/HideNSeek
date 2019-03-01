@@ -1,8 +1,6 @@
 <?php
 namespace Codeh\HnS;
 
-use pocketmine\{Server, Player};
-
 use pocketmine\plugin\PluginBase;
 
 use pocketmine\command\CommandSender;
@@ -12,31 +10,33 @@ use pocketmine\utils\TextFormat;
 use pocketmine\utils\Config;
 
 use pocketmine\item\Item;
-use pocketmine\level\Level;
+
+use pocketmine\{Server, Player};
+use pocketmine\level\{Level, Position};
 
 class HnS extends PluginBase
 {
 
-	public $prefix, $economy, $config, $arena;
-	public $gameState = 1; //0 idle, 1 waiting, 2 playing
-	//public $gameMaker = null;
+	public $prefix, $economy, $config;
+	#public $gameState = 1; //0 idle, 1 waiting, 2 playing
+	public $gameMaker = [];
+	public $settingSign = [];
+	public $gameSession = [];
 	public $playTime;
 	public $hideTime;
 	public $waitTime; 
-	public $playing = [];
-	public $seeker = [], $hider = [];
 	public $commands = [];
-	public $minp, $maxp;
-	public $pcounts = 0; //i dont want milliseconds wasted on count()
-	//public $newArena = [];
+	public $playercounts = []; //i dont want milliseconds wasted on count()
+	public $arenas = []; # loaded arenas
+	public $running = []; # running or arenas in progress
+	public $newArena = [];
 	
 	public function onLoad()
 	{
 		@mkdir($this->getDataFolder());
 		$this->saveDefaultConfig();
 		$this->config = new Config($this->getDataFolder() . "/config.yml", Config::YAML);
-		//$this->config->save();
-		$this->prefix = $this->config->get("prefix");
+		$this->prefix = $this->config->getNested("game.prefix");
 		$this->checkConfig();
 	}
 	
@@ -52,72 +52,147 @@ class HnS extends PluginBase
 			$this->economy = EconomyAPI::getInstance();
 			foreach($this->config->getNested("reward.commands") as $c) { $this->commands[] = $c; }
 		}
+
+		$this->playTime = $this->config->getNested("game.time-to-play");
+		$this->hideTime = $this->config->getNested("game.time-to-hide");
+		$this->waitTime = $this->config->getNested("game.time-to-wait");
+
+		$this->arenadata = new ArenaData($this);
+		$this->arenadata->init();
 		
-		$this->arena = $this->config->getNested("arena.world");
-
-		if(!$this->getServer()->getLevelByName($this->arena) instanceof Level)
-		{
-			if(file_exists($this->getServer()->getDataPath() . "/worlds/" . $this->arena))
-			{
-				try {
-					$this->getServer()->loadLevel($this->arena);
-					
-					$this->playTime = $this->config->getNested("game.time-to-play");
-					$this->hideTime = $this->config->getNested("game.time-to-hide");
-					$this->waitTime = $this->config->getNested("game.time-to-wait");
-					$this->maxp = $this->config->getNested("game.max-players");
-					$this->minp = $this->config->getNested("game.min-players");
-
-					$this->getServer()->getPluginManager()->registerEvents(new GameEars($this), $this);
-					$this->getServer()->getScheduler()->scheduleRepeatingTask(new GameSender($this), 20);
-					$this->getServer()->getScheduler()->scheduleRepeatingTask(new RefreshSigns($this), 20);
-				} catch() {
-				}
+		foreach($this->arenadata->getAllGames() as $g => $w) {
+			if(file_exists($this->getServer()->getDataPath() . "/worlds/" . $w)) {
+				if(!$w instanceof Level) $this->getServer()->loadLevel($w);
+				$this->initGame($g);
+				$this->getLogger()->info($this->prefix . TextFormat::GREEN . " > Game: " . $g . " has been loaded");
 			} else {
-				$this->getLogger()->critical($this->prefix . " ARENA: " . $this->arena . " SEEMS TO BE MISSING");		
-				$this->getServer()->getPluginManager()->disablePlugin($this);
-				return;
+				$this->getLogger()->info($this->prefix . TextFormat::RED . " > World: " . $w . " cannot be loaded, please check it");
 			}
 		}
 	}
 	
 	public function onEnable()
 	{
-		$this->getLogger()->info($this->prefix . " E N A B L E D");	
+		$this->getLogger()->info($this->prefix . " E N A B L E D");
+		$this->getServer()->getPluginManager()->registerEvents(new GameEars($this), $this);
+		$this->getScheduler()->scheduleRepeatingTask(new GameSender($this), 20);
+		$this->getScheduler()->scheduleRepeatingTask(new RefreshSigns($this), 20);
 	}
 	
 	public function onDisable()
 	{
-		$this->getLogger()->info($this->prefix . " D I S A B L E D");	
+		$this->getLogger()->info($this->prefix . " D I S A B L E D");
 	}
 	
-	private function notifyPlayer(Player $player, int $type): void
-	{
-		switch($type)
-		{
-			case 1:
-				$player->addTitle("", "§a+1 Kill");
+	
+	private function prepareMaker($player, $game) : void {
+		$this->gameMaker[ $player->getName() ] = $game;
+		$player->sendMessage(TextFormat::BOLD . $this->prefix . TextFormat::RESET . " > " . TextFormat::EOL . 
+					 "<--------------------------------->" . TextFormat::EOL . 
+				     TextFormat::YELLOW . "You cannot chat, but you can use commands." . TextFormat::EOL .
+					 TextFormat::YELLOW . "the commands below will only work without /" . TextFormat::EOL . TextFormat::RESET .
+					 "world - set where the game world is" . TextFormat::EOL .
+					 "lobbyspawn - set where the lobby is" . TextFormat::EOL .
+				     "seekerspawn - set where the seeker will spawn" . TextFormat::EOL .
+				     "hiderspawn - set where the hiders will spawn". TextFormat::EOL .
+				     "minplayer - min player to start the game(must be > 1)". TextFormat::EOL .
+				     "maxplayer - max player allowed in the game" . TextFormat::EOL .
+					 "done - will save the game data" . TextFormat::EOL .
+					 "<--------------------------------->" . TextFormat::EOL
+				    );
+	}
+	
+	public function gameIsReady(string $game) : bool {
+		return count($this->newArena[$game]) == 6;
+	}
+	
+	public function cacheGame(string $game, string $type, $data, $player) : void {
+		switch ($type) {
+			case "world":
+				if(file_exists($this->getServer()->getDataPath() . "/worlds/" . $data))
+				{
+					$this->newArena[$game]["world"] = $data;
+					$player->sendMessage($this->prefix . " > world has been saved");
+				} else {
+					$player->sendMessage($this->prefix . " > ERROR missing world.");
+				}
 			break;
-
-			case 2:
-				$player->addTitle("", "§c+1 Death");
+			
+			case "lobbyspawn":
+				if(is_array($data))
+				{
+					$this->newArena[$game]["lobbyspawn"]["x"] = $data[0];
+					$this->newArena[$game]["lobbyspawn"]["y"] = $data[1];
+					$this->newArena[$game]["lobbyspawn"]["z"] = $data[2];
+					$player->sendMessage($this->prefix . " > position was saved");
+				} else {
+					$player->sendMessage($this->prefix . " > there was an error");
+				}
+			break;
+			
+			case "hiderspawn":
+				if(is_array($data))
+				{
+					$this->newArena[$game]["hiderspawn"]["x"] = $data[0];
+					$this->newArena[$game]["hiderspawn"]["y"] = $data[1];
+					$this->newArena[$game]["hiderspawn"]["z"] = $data[2];
+					$player->sendMessage($this->prefix . " > position was saved");
+				} else {
+					$player->sendMessage($this->prefix . " > there was an error");
+				}
+			break;
+			
+			case "seekerspawn":
+				if(is_array($data))
+				{
+					$this->newArena[$game]["seekerspawn"]["x"] = $data[0];
+					$this->newArena[$game]["seekerspawn"]["y"] = $data[1];
+					$this->newArena[$game]["seekerspawn"]["z"] = $data[2];
+					$player->sendMessage($this->prefix . " > position was saved");
+				} else {
+					$player->sendMessage($this->prefix . " > there was an error");
+				}
+			break;
+			
+			case "minplayer":
+				if(is_integer($data))
+				{
+					$this->newArena[$game]["minplayer"] = $data;
+					$player->sendMessage($this->prefix . " > data was saved");
+				} else {
+					$player->sendMessage($this->prefix . " > there was an error");
+				}
+			break;
+			
+			case "maxplayer":
+				if(is_integer($data))
+				{
+					$this->newArena[$game]["maxplayer"] = $data;
+					$player->sendMessage($this->prefix . " > data was saved");
+				} else {
+					$player->sendMessage($this->prefix . " > there was an error");
+				}
 			break;
 		}
 	}
 	
-	/*private function prepareMaker($player , $newArena) : void
-	{
-		$this->gameMaker = $player->getName();
-		$player->sendMessage(TextFormat::BOLD . $this->prefix . TextFormat::EOL . 
-				     "You cannot chat, please input commands without /" . TextFormat::EOL .
-				     "seekerspawn - set where the seeker will spawn" . TextFormat::EOL .
-				     "hiderspawn - set where the hiders will spawn". TextFormat::EOL .
-				     "minplayer - min player to start the game(must be > 1)". TextFormat::EOL .
-				     "maxplayer - max player allowed in the game" . TextFormat::EOL
-				    );
-		$player->setGamemode(1);
-		$player->teleport($this->getServer()->getLevelByName($newArena)->getSafeSpawn() , 0, 0);
-	}*/
+	public function initGame(string $game) : void {
+		$this->playercounts[ $game ] = 0;
+		
+		$this->running[ $game ] = [
+		"game" => $game,
+		"phase" => "WAIT",
+		"wait-time" => $this->waitTime,
+		"hide-time" => $this->hideTime,
+		"play-time" => $this->playTime
+		];
+		
+		$this->arenas[ $game ] = [
+		"waiting" => [],
+		"seekers" => [],
+		"hiders" => []
+		];
+	}
 
 	public function onCommand(CommandSender $player, Command $cmd, $label, array $args) : bool
 	{
@@ -125,63 +200,74 @@ class HnS extends PluginBase
 		{
 			switch($cmd->getName())
 			{
-				/*case "hns":
+				case "hns":
 					if(!empty($args[0]))
 					{
-						if($args[0]=='make' or $args[0]=='create')
+						if($player->isOp())
 						{
-							if($player->isOp())
+							if($args[0]=='make' or $args[0]=='create')
 							{
-									if(!empty($args[1]))
-									{
-										if(file_exists($this->getServer()->getDataPath() . "/worlds/" . $args[1]))
-										{
-											$this->getServer()->loadLevel($args[1]);
-											$this->getServer()->getLevelByName($args[1])->loadChunk($this->getServer()->getLevelByName($args[1])->getSafeSpawn()->getFloorX(), $this->getServer()->getLevelByName($args[1])->getSafeSpawn()->getFloorZ());
-											$this->newArena["arena"]["world"] = $args[1];
-											var_dump($this->newArena);
-											$this->prepareMaker($player, $args[1]);
-											return true;
-										} else {
-											$player->sendMessage($this->prefix . " •> ERROR missing world.");
-											return true;
-										}
-									}
-									else
-									{
-										$player->sendMessage($this->prefix . $this->config->getNested("messages.wrongUsage"));
-										return true;
-									}
-							} else {
-								$player->sendMessage($this->prefix . $this->config->getNested("messages.notOp"));
-								return true;
+								
+								if(!empty($args[1]))
+								{
+									$this->newArena[ $args[1] ] = []; #•>
+									$player->sendMessage($this->prefix . " > A new game is ready to be set up, please use /hns setup {$args[1]}");
+								}
+								else
+								{
+									$player->sendMessage($this->prefix . $this->config->getNested("messages.wrongUsage"));
+									return true;
+								}
 							}
-						}
-						else if($args[0] == "leave" or $args[0]=="quit" )
-						{
-							if(in_array($player->getName(), $this->playing))
+							if($args[0] == "setup")
 							{
-								$this->leaveArena($player); 
-								return true;
+								if(!empty($args[1]))
+								{
+									if(array_key_exists($args[1], $this->newArena))
+									{
+										$this->prepareMaker($player, $args[1]);
+										return true;
+									} else {
+										$player->sendMessage($this->prefix . $this->config->getNested("messages.wrongUsage"));
+										return false;
+									}
+								}
+							}
+							if($args[0] == "setsign")
+							{
+								if(!empty($args[1]))
+								{
+									if(array_key_exists($args[1], $this->arenas))
+									{
+										$this->settingSign[ $player->getName() ] = $args[1];
+										return true;
+									} else {
+										$player->sendMessage($this->prefix . $this->config->getNested("messages.wrongUsage"));
+										return false;
+									}
+								}
 							}
 						} else {
-							$player->sendMessage($this->prefix . $this->config->getNested("messages.notInGame"));
+							$player->sendMessage($this->prefix . $this->config->getNested("messages.notOp"));
 							return true;
 						}
 					} else {
-						$player->sendMessage($this->prefix . " •> " . "/hns <make-leave> : Create Arena | Leave the game");
-						$player->sendMessage($this->prefix . " •> " . "/hnsstart : Start the game in 10 seconds");
+						$player->sendMessage($this->prefix . " > " . "/hns <make-leave> : Create Arena | Leave the game");
+						$player->sendMessage($this->prefix . " > " . "/hnsstart : Start the game in 10 seconds");
 					}
-				break;*/
+				break;
+				
 				case "quithns":
-					if(in_array($player->getName(), $this->playing))
+					if(array_key_exists($player->getName(), $this->gameSession))
 					{
-						$this->leaveArena($player);
+						$this->leaveArena($player, $this->gameSession[$player->getName()], true);
+					} else {
+						$player->sendMessage($this->prefix . " > You are not in a Hide N Seek game");
 					}
 				break;
 					
 				case "joinhns":
-					if(in_array($player->getName(), $this->playing) == false)
+					if(array_key_exists($player->getName(), $this->gameSession) == false)
 					{
 						$this->summon($player, "waiting");
 					}
@@ -190,7 +276,7 @@ class HnS extends PluginBase
 				case "starthns": //Force the game to start immediately
 					if($player->isOp() and $this->waitTime > 11)
 					{
-						$player->sendMessage($this->prefix . " •> " . "§aStarting in 10 seconds...");
+						$player->sendMessage($this->prefix . " > §aStarting in 10 seconds...");
 						$this->waitTime = 11; //needs to be 11 bc of how ticking works
 					}
 				break;
@@ -230,42 +316,54 @@ class HnS extends PluginBase
 		}
 	}
 	
-	public function setSeeker(string $name) : void
+	public function setWaiting(string $name, string $game) : void
 	{
-		$this->seeker[] = $name;
+		array_push($this->arenas[$game]["waiting"], $name);
+	}
+
+	public function setSeeker(string $name, string $game) : void
+	{
+		array_push($this->arenas[$game]["seekers"], $name);
 	}
 	
-	public function setHider(string $name) : void
+	public function setHider(string $name, string $game) : void
 	{
-		$this->hider[] = $name;
+		array_push($this->arenas[$game]["hiders"], $name);
 	}
 	
-	public function leaveArena(Player $player) : void
+	public function leaveArena(Player $player, string $game, bool $manual = false) : void
 	{
-		$spawn = $this->getServer()->getDefaultLevel()->getSafeSpawn();
-		$this->getServer()->getDefaultLevel()->loadChunk($spawn->getFloorX(), $spawn->getFloorZ());
-		$player->teleport($spawn , 0, 0);		
-		//$player->setGameMode(2);
+		if($manual) {
+			$spawn = $this->getServer()->getDefaultLevel()->getSafeSpawn();
+			$this->getServer()->getDefaultLevel()->loadChunk($spawn->getFloorX(), $spawn->getFloorZ());
+			$player->teleport($spawn , 0, 0);
+		}		
+		#$player->setGameMode(2);
 		$player->setFood(20);
 		$player->setHealth(20);
-		$this->removefromgame($player->getName());
-		$this->cleanPlayer($player);
-		$this->pcount -= 1;
+		
+		#$this->cleanPlayer($player);
+		$this->playercounts[$game] -= 1;
+		$this->removefromgame($player->getName(), $game);
+		#$this->arenadata->reducePlayerCount($this->gameSession($player->getName()));
 	}
 	
-	public function removefromgame(string $playername)
+	public function removefromgame(string $playername, string $game)
 	{
-		if (in_array($playername, $this->playing)){
-			unset($this->waiting[ $playername ]);
+		if (in_array($playername, $this->arenas[$game]["waiting"])){
+			unset($this->arenas[$game]["waiting"][ $playername ]);
 		}
-		if (in_array($playername, $this->seeker)){
-			unset($this->seeker[ $playername ]);
+		if (in_array($playername, $this->arenas[$game]["seekers"])){
+			unset($this->arenas[$game]["seekers"][ $playername ]);
 		}
-		if (in_array($playername, $this->hider)){
-			unset($this->hider[ $playername ]);
+		if (in_array($playername, $this->arenas[$game]["hiders"])){
+			unset($this->arenas[$game]["hiders"][ $playername ]);
+		}
+		if (array_key_exists($playername, $this->gameSession)){
+			unset($this->gameSession[ $playername ]);
 		}
 		
-		$this->cleanPlayer($this->getServer()->getPlayer($playername));
+		$this->cleanPlayer($this->getServer()->getPlayer( $playername ));
 	}
 	
 	private function cleanPlayer($player) : void
@@ -273,134 +371,39 @@ class HnS extends PluginBase
 		$player->getInventory()->clearAll();
 		$player->getCursorInventory()->clearAll();
 		$player->getArmorInventory()->clearAll();
-		$player->setNameTag( $this->getServer()->getPluginManager()->getPlugin('PureChat')->getNametag($player) );
+		#$player->setNameTag( $this->getServer()->getPluginManager()->getPlugin('PureChat')->getNametag($player) );
 	}
 
-	private function summon($player, string $type)
+	public function summon($player, string $game, string $type = "waiting")
 	{
-		$level = $this->getServer()->getLevelByName( $this->arena );
+		$level = $this->getServer()->getLevelByName( $this->arenadata->getWorld($game) );
 		
 		switch($type)
 		{
 			case "waiting":
-				$thespawn = $this->config->getNested("game.waiting");
-				array_push($this->playing, $player->getName());
-				$this->pcount += 1;
+				$point = $this->arenadata->getLobbySpawn($game);
+				$this->playercounts[ $game ] += 1;
+				$this->setWaiting($player->getName(), $game);
+				$this->gameSession[ $player->getName() ] = $game;
 			break;
 				
 			case "hider":
-				$thespawn = $this->config->getNested("game.hider");
+				$point = $this->arenadata->getHiderSpawn($game);
+				$this->setHider($player->getName(), $game);
 			break;
 				
 			case "seeker":
-				$thespawn = $this->config->getNested("game.seeker");
+				$point = $this->arenadata->getSeekerSpawn($game);
+				$this->setSeeker($player->getName(), $game);
 			break;
 		}
-		
-		$spawn = new Position($thespawn["x"] + 0.5 , $thespawn["y"] , $thespawn["z"] + 0.5 , $level);
-		$player->teleport($spawn, 0, 0);
+		#var_dump($this->arenas[$game]);
+		#var_dump($this->gameSession);
+		#var_dump($this->running);
+		$target = new Position($point[0] + 0.5 , $point[1] , $point[2] + 0.5 , $level);
+		$player->teleport($target, 0, 0);
 		$player->setFood(20);
 		$player->setHealth(20);
-	}
-
-	/*public function onInteract(PlayerInteractEvent $event)
-	{
-		$player = $event->getPlayer();
-		$block = $event->getBlock();
-		$tile = $player->getLevel()->getTile($block);
-		if($tile instanceof Sign) 
-		{
-			if($this->mode == 26 )
-			{
-				$tile->setText(TextFormat::AQUA . "[Join]", TextFormat::YELLOW  . "0 / 12", "§f".$this->currentLevel, $this->prefix);
-				$this->refreshrbharenas();
-				$this->currentLevel = "";
-				$this->mode = 0;
-				$player->sendMessage($this->prefix . " •> " . "Arena Registered!");
-			} else {
-				$text = $tile->getText();
-				if($text[3] == $this->prefix)
-				{
-					if($text[0] == TextFormat::AQUA . "[Join]")
-					{
-						$config = new Config($this->getDataFolder() . "/config.yml", Config::YAML);
-						$namemap = str_replace("§f", "", $text[2]);
-
-						$this->iswaitingrbh[ $player->getName() ] = $namemap;//beta, set to waiting to be able to tp
-						$this->kills[ $player->getName() ] = 0; //create kill points
-						$this->deaths[ $player->getName() ] = 0; //create death points
-
-						$level = $this->getServer()->getLevelByName($namemap);
-						$thespawn = $config->get($namemap . "Lobby");
-						$spawn = new Position($thespawn[0]+0.5 , $thespawn[1] ,$thespawn[2]+0.5 ,$level);
-						$level->loadChunk($spawn->getFloorX(), $spawn->getFloorZ());
-
-						$player->teleport($spawn, 0, 0);
-						$player->getInventory()->clearAll();
-						$player->removeAllEffects();
-						$player->setHealth(20);
-						$player->setGameMode(2);
-
-						return true;
-					} else {
-						$player->sendMessage($this->prefix . " •> " . "Please try to join later...");
-						return true;
-					}
-				}
-			}
-		}
-		if($this->mode >= 1 && $this->mode <= 12 )
-		{
-			$config = new Config($this->getDataFolder() . "/config.yml", Config::YAML);
-			$config->set($this->currentLevel . "Spawn" . $this->mode, array($block->getX(),$block->getY()+1,$block->getZ()));
-			$player->sendMessage($this->prefix . " •> " . "Spawn " . $this->mode . " has been registered!");
-			$this->mode++;
-			if($this->mode == 13)
-			{
-				$player->sendMessage($this->prefix . " •> " . "Tap to set the lobby spawn");
-			}
-			$config->save();
-			return true;
-		}
-		if($this->mode == 13)
-		{
-			$config = new Config($this->getDataFolder() . "/config.yml", Config::YAML);
-			$config->set($this->currentLevel . "Lobby", array($block->getX(),$block->getY()+1,$block->getZ()));
-			$player->sendMessage($this->prefix . " •> " . "Lobby has been registered!");
-			$this->mode++;
-			if($this->mode == 14)
-			{
-				$player->sendMessage($this->prefix . " •> " . "Tap anywhere to continue");
-			}
-			$config->save();
-			return true;
-		}
-
-		if($this->mode == 14)
-		{
-			$level = $this->getServer()->getLevelByName($this->currentLevel);
-			$level->setSpawn = (new Vector3($block->getX(),$block->getY()+2,$block->getZ()));
-			$player->sendMessage($this->prefix . " •> " . "Touch a sign to register Arena!");
-			$spawn = $this->getServer()->getDefaultLevel()->getSafeSpawn();
-			$this->getServer()->getDefaultLevel()->loadChunk($spawn->getFloorX(), $spawn->getFloorZ());
-			$player->teleport($spawn,0,0);
-
-			$config = new Config($this->getDataFolder() . "/config.yml", Config::YAML);
-			$config->set("rbharenas", $this->rbharenas);
-			$config->save();
-			$this->mode=26;
-			return true;
-		}
-	}*/
-
-	
-	public function refreshGame() : void
-	{
-		$this->waitTime;
-		$this->hideTime;
-		$this->playTime;
-		$this->hider = [];
-		$this->seeker = [];
 	}
 	
 	public function givePrize(Player $player) : void

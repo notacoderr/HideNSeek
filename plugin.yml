@@ -6,8 +6,11 @@ api: [3.0.0, 3.5.2, 4.0.0]
 
 commands:
     hns:
-        usage: /hns <leave-make>
+        usage: /hns <create> <game>
         description: Main HNS Command
     starthns:
         usage: /starthns
         description: HideNSeek force start
+    quithns:
+        usage: /quithns
+        description: Quit a Hide and Seek game

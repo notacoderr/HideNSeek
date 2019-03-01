@@ -1,9 +1,10 @@
 engine: true
 
+# set this to false when you are not going to add more arena, will improve performance
+development-mode: true
+
 game:
   prefix: "Hide N Seek"
-  min-players: 2
-  max-players: 10
   time-to-wait: 30
   time-to-play: 300
   time-to-hide: 30
@@ -13,23 +14,8 @@ reward:
   enable: true
   money: 500
   commands: []
-  
-arena:
-  world: "ChangeMeDaddy (wink wink)"
-  waiting:
-    x:
-    y:
-    z:
-  hider:
-    x:
-    y:
-    z:
-  seeker:
-    x:
-    y:
-    z:
-    
- messages:
+
+messages:
    teamWon: "{team} won the hide and seek"
    seeker-found: "{player} found you, lmao"
    hider-found: "you found {player}"

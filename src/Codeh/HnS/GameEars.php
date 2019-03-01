@@ -32,7 +32,133 @@ class GameEars implements Listener{
     {
 		  $this->main = $core;
     }
-    
+	
+    public function onChat(PlayerChatEvent $event) {
+		if(array_key_exists($event->getPlayer()->getName(), $this->main->gameMaker) == false) return;
+		$player = $event->getPlayer();
+		$game = $this->main->gameMaker[$event->getPlayer()->getName()];
+		$chat = explode(" ", $event->getMessage());
+		$cmd = strtolower($chat[0]);
+		switch($cmd) {
+			case 'world':
+				$this->main->cacheGame($game, $cmd, (empty($chat[1]) ? $player->getLevel()->getName() : $chat[1]), $player);
+			break;
+			case 'lobbyspawn':
+				$this->main->cacheGame($game, $cmd, [$player->getX(), $player->getY(), $player->getZ()], $player);
+			break;
+			case 'hiderspawn':
+				$this->main->cacheGame($game, $cmd, [$player->getX(), $player->getY(), $player->getZ()], $player);
+			break;
+			case 'seekerspawn':
+				$this->main->cacheGame($game, $cmd, [$player->getX(), $player->getY(), $player->getZ()], $player);
+			break;
+			case 'minplayer':
+				$this->main->cacheGame($game, $cmd, (empty($chat[1]) ? 2 : intval($chat[1])), $player);
+			break;
+			case 'maxplayer':
+				$this->main->cacheGame($game, $cmd, (empty($chat[1]) ? 6 : intval($chat[1])), $player);
+			break;
+			case 'done':
+			#var_dump($this->main->newArena[$game]);
+				$a = $this->main->arenadata;
+				$n = $this->main->newArena;
+				$init = $this->main->arenas;
+				if($this->main->gameIsReady($game)) {
+					$a->saveGame($game, $n[$game]["world"]);
+					$a->setLobbySpawn($game, $n[$game]["lobbyspawn"]);
+					$a->setHiderSpawn($game, $n[$game]["hiderspawn"]);
+					$a->setSeekerSpawn($game, $n[$game]["seekerspawn"]);
+					$a->setMin($game, $n[$game]["minplayer"]);
+					$a->setMax($game, $n[$game]["maxplayer"]);
+					$player->sendMessage(TF::BOLD . $this->main->prefix .TF::RESET . " > Game data has been saved, please use /hns setsign [game].");
+					
+					$this->main->initGame($game);
+					unset( $this->main->gameMaker[ $event->getPlayer()->getName() ] ); #remove from the cache
+				} else {
+					$player->sendMessage(TF::BOLD . $this->main->prefix .TF::RESET . " > Game data isn't complete yet:" . TF::EOL . TF::RESET .
+					TF::WHITE."Arena: ". $game . TF::EOL .
+					TF::WHITE."World: ". (array_key_exists("world", $n[$game]) ? TF::GREEN . $n[$game]["world"] : TF::RED . "missing") . TF::EOL .
+					TF::WHITE."Lobby Spawn: ". (array_key_exists("lobbyspawn", $n[$game]) ? TF::GREEN."set" : TF::RED . "missing") . TF::EOL .
+					TF::WHITE."Hider Spawn: ". (array_key_exists("hiderspawn", $n[$game]) ? TF::GREEN."set" : TF::RED . "missing") . TF::EOL .
+					TF::WHITE."Seeker Spawn: ". (array_key_exists("seekerspawn", $n[$game]) ? TF::GREEN."set" : TF::RED . "missing") . TF::EOL .
+					TF::WHITE."Min players: ". (array_key_exists("minplayer", $n[$game]) ? TF::GREEN."set" : TF::RED . "missing") . TF::EOL .
+					TF::WHITE."Max players: " . (array_key_exists("maxplayer", $n[$game]) ? TF::GREEN. "set" : TF::RED . "missing")
+					);
+				}
+			break;
+			
+			default:
+			$player->sendMessage(TF::BOLD . $this->main->prefix . " •> " .TF::RESET . TF::EOL . 
+					 "<--------------------------------->" . TF::EOL . 
+				     TF::YELLOW . "You cannot chat, but you can use commands." . TF::EOL .
+					 TF::YELLOW . "the commands below will only work without /" . TF::EOL . TF::RESET .
+					 "world [name]- set where the game world is" . TF::EOL .
+					 "lobbyspawn - set where the lobby is" . TF::EOL .
+				     "seekerspawn - set where the seeker will spawn" . TF::EOL .
+				     "hiderspawn - set where the hiders will spawn". TF::EOL .
+				     "minplayer - min player to start the game(must be > 1)". TF::EOL .
+				     "maxplayer - max player allowed in the game" . TF::EOL .
+					 "done - will save the game data" . TF::EOL .
+					 "<--------------------------------->"
+				    );
+		}
+		$event->setCancelled();
+	}
+	
+	public function onBlockBreak(BlockBreakEvent $event)
+	{
+		$player = $event->getPlayer();
+		if(array_key_exists($player->getName(), $this->main->settingSign))
+		{
+			$block = $event->getBlock();
+			$tile = $player->getLevel()->getTile($block);
+			if($tile instanceof \pocketmine\tile\Sign)
+			{
+				$game = $this->main->settingSign[ $player->getName() ];
+				$tile->setText(
+					TF::BOLD . TF::RED . $this->main->prefix,
+					TF::BOLD . TF::AQUA . $game,
+					TF::YELLOW  . $this->main->arenadata->getPlayerCounts($game) . " / " . $this->main->arenadata->getMax($game),
+					TF::GREEN . "Waiting"
+				);
+				unset( $this->main->settingSign[ $player->getName() ] );
+				$player->sendMessage($this->main->prefix . " > " . " Sign registered!");
+			}
+			$event->setCancelled();
+		}
+	}
+	
+	public function onInteract(PlayerInteractEvent $event)
+	{
+		$player = $event->getPlayer();
+		$block = $event->getBlock();
+		$tile = $player->getLevel()->getTile($block);
+		if($tile instanceof \pocketmine\tile\Sign) 
+		{
+			$text = $tile->getText();
+			if(TF::clean($text[0]) == $this->main->prefix)
+			{
+				if(array_key_exists(TF::clean($text[1]), $this->main->arenas))
+				{
+					if(strpos(TF::clean($text[3]), 'Waiting') !== false and TF::clean($text[2]) !== "F U L L")
+					{
+						if(array_key_exists($player->getName(), $this->main->gameSession) == false)
+						{
+							$this->main->summon($player, TF::clean($text[1]));
+							return;
+						} else {
+							$player->sendMessage($this->main->prefix . " > You are already in a game...");
+						}
+					} else {
+						$player->sendMessage($this->main->prefix . " > Please try to join later...");
+						return;
+					}
+				}
+			}
+		}
+	}
+	
+	/*
 	public function onJoin(PlayerJoinEvent $event) : void
 	{
 		$player = $event->getPlayer();
@@ -133,7 +259,7 @@ class GameEars implements Listener{
 			}
 			if($this->arena == $to)
 			{
-				swich($this->gameState)
+				switch($this->gameState)
 				{
 					case 1:
 						$this->summon($player, "waiting");
@@ -158,7 +284,7 @@ class GameEars implements Listener{
 				$event->setCancelled();
 				$event->getPlayer()->sendMessage($this->main->config->getNested("otherMessages.notLoggedIn"));
 		}
-	}
+	}*/
 }
 
 ?>
