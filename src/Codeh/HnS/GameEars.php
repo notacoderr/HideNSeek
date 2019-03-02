@@ -6,8 +6,8 @@ use pocketmine\Server;
 
 use pocketmine\event\Listener;
 
-use pocketmine\event\player\PlayerJoinEvent;
-use pocketmine\event\player\PlayerLoginEvent;
+#use pocketmine\event\player\PlayerJoinEvent;
+#use pocketmine\event\player\PlayerLoginEvent;
 use pocketmine\event\player\PlayerQuitEvent;
 use pocketmine\event\player\PlayerMoveEvent;
 use pocketmine\event\player\PlayerChatEvent;
@@ -15,7 +15,7 @@ use pocketmine\event\player\PlayerInteractEvent;
 use pocketmine\event\player\PlayerCommandPreprocessEvent;
 
 use pocketmine\event\block\BlockBreakEvent;
-use pocketmine\event\block\BlockPlaceEvent;
+#use pocketmine\event\block\BlockPlaceEvent;
 
 use pocketmine\event\entity\EntityDamageEvent;
 use pocketmine\event\entity\EntityDamageByEntityEvent;
@@ -30,7 +30,7 @@ class GameEars implements Listener{
 
     public function __construct(\Codeh\HnS\HnS $core)
     {
-		  $this->main = $core;
+		$this->main = $core;
     }
 	
     public function onChat(PlayerChatEvent $event) {
@@ -70,7 +70,7 @@ class GameEars implements Listener{
 					$a->setSeekerSpawn($game, $n[$game]["seekerspawn"]);
 					$a->setMin($game, $n[$game]["minplayer"]);
 					$a->setMax($game, $n[$game]["maxplayer"]);
-					$player->sendMessage(TF::BOLD . $this->main->prefix .TF::RESET . " > Game data has been saved, please use /hns setsign [game].");
+					$player->sendMessage(TF::BOLD . $this->main->prefix .TF::RESET . " > Game data has been saved, please use /hns setsign {$game}.");
 					
 					$this->main->initGame($game);
 					unset( $this->main->gameMaker[ $event->getPlayer()->getName() ] ); #remove from the cache
@@ -92,7 +92,7 @@ class GameEars implements Listener{
 					 "<--------------------------------->" . TF::EOL . 
 				     TF::YELLOW . "You cannot chat, but you can use commands." . TF::EOL .
 					 TF::YELLOW . "the commands below will only work without /" . TF::EOL . TF::RESET .
-					 "world [name]- set where the game world is" . TF::EOL .
+					 "world - set your current world as the game world" . TF::EOL .
 					 "lobbyspawn - set where the lobby is" . TF::EOL .
 				     "seekerspawn - set where the seeker will spawn" . TF::EOL .
 				     "hiderspawn - set where the hiders will spawn". TF::EOL .
@@ -118,7 +118,7 @@ class GameEars implements Listener{
 				$tile->setText(
 					TF::BOLD . TF::RED . $this->main->prefix,
 					TF::BOLD . TF::AQUA . $game,
-					TF::YELLOW  . $this->main->arenadata->getPlayerCounts($game) . " / " . $this->main->arenadata->getMax($game),
+					TF::YELLOW  . $this->main->playercounts[$game] . " / " . $this->main->arenadata->getMax($game),
 					TF::GREEN . "Waiting"
 				);
 				unset( $this->main->settingSign[ $player->getName() ] );
@@ -153,92 +153,54 @@ class GameEars implements Listener{
 						$player->sendMessage($this->main->prefix . " > Please try to join later...");
 						return;
 					}
+				} else {
+					$player->sendMessage($this->main->prefix . " > Game is missing...");
+					return;
 				}
 			}
 		}
 	}
 	
-	/*
-	public function onJoin(PlayerJoinEvent $event) : void
+	/*public function onJoin(PlayerJoinEvent $event) : void
 	{
-		$player = $event->getPlayer();
-		if(in_array($player->getLevel()->getFolderName(), $this->rbharenas))
+		$name = $event->getPlayer()->getName();
+		if(array_key_exists($name, $this->main->gameSession))
 		{
-			$this->leaveArena($player);
+			$this->main->removefromgame($name, $this->main->gameSession[$name]);
 		}
 	}
-	
+	*/
+
 	public function onQuit(PlayerQuitEvent $event) : void
 	{
-		$player = $event->getPlayer();
-		if(in_array($player->getLevel()->getFolderName(), $this->rbharenas))
+		$name = $event->getPlayer()->getName();
+		if(array_key_exists($name, $this->main->gameSession))
 		{
-			$this->leaveArena($player);
-		}
-	}
-
-	public function onBlockBreak(BlockBreakEvent $event)
-	{
-		$player = $event->getPlayer();
-		$level = $player->getLevel()->getFolderName(); 
-		if(in_array($level, $this->rbharenas))
-		{
-			$event->setCancelled();
-		}
-	}
-
-	public function onBlockPlace(BlockPlaceEvent $event)
-	{
-		$player = $event->getPlayer();
-		$level = $player->getLevel()->getFolderName(); 
-		if(in_array($level, $this->rbharenas))
-		{
-			$event->setCancelled();
+			$this->main->removefromgame($name, $this->main->gameSession[$name]);
 		}
 	}
 	
-	public function onDamage(EntityDamageEvent $event)
+	public function onDamage(EntityDamageByEntityEvent $event)
 	{
-		if($event instanceof EntityDamageByEntityEvent)
+		if(($seeker = $event->getDamager()) instanceof Player && ($hider = $event->getEntity()) instanceof Player)
 		{
-			if($event->getEntity() instanceof Player && $event->getDamager() instanceof Player)
+			$seekerName = $seeker->getName();
+			$hiderName = $hider->getName();
+			if(array_key_exists($seekerName, $this->main->gameSession) && array_key_exists($hiderName, $this->main->gameSession))
 			{
-				$a = $event->getEntity()->getName(); $b = $event->getDamager()->getName();
-				if(array_key_exists($a, $this->iswaitingrbh) || array_key_exists($b, $this->iswaitingrbh))
+				$game = $this->main->gameSession[$seekerName];
+				if($this->main->running[$game]["phase"] == "PLAY")
 				{
-					$event->setCancelled();
-					return true;
+					if(in_array($seekerName, $this->main->arenas[$game]["seekers"]) == false) return;
+					if(in_array($hiderName, $this->main->arenas[$game]["hiders"]) == false) return;
+					
+					unset($this->main->arenas[$game]["hiders"][$hiderName]); # remove as hider
+					array_push($this->main->arenas[$game]["seekers"], $name); # push into seekers
+					
+					$seeker->addTitle("", str_replace("{player}", $hiderName, $this->main->config->getNested("messages.hider-found")));
+					$hider->addTitle("", str_replace("{player}", $seekerName, $this->main->config->getNested("messages.seeker-found")));
 				}
-				if(in_array($a, $this->isplayingrbh) && in_array($event->getEntity()->getLevel()->getFolderName(), $this->rbharenas))
-				{
-					$event->setCancelled(false); //for other plugin's cancelling damage event
-
-					if($event->getCause() == 2)
-					{
-						$event->setDamage(0.0); //hack, to remove damage on projectile hit entity event
-					}
-
-					if($event->getDamage() >= $event->getEntity()->getHealth())
-					{
-						$event->setDamage(0.0); //hack, to avoid players from getting killed
-						$event->setCancelled();
-						$inv = $event->getDamager()->getInventory();
-						if(!$inv->contains( Item::get(Item::ARROW) ))
-						{
-							$inv->addItem( $this->getArrow() );
-						}
-						$this->addKill($event->getDamager()->getName()); $this->notifyPlayer($event->getDamager(), 1);
-						$this->addDeath($event->getEntity()->getName()); $this->notifyPlayer($event->getEntity(), 2);
-						$this->randSpawn($event->getEntity(), $event->getEntity()->getLevel()->getFolderName());
-					}
-				}	
-				return true;
-			}
-		} else {
-			$a = $event->getEntity()->getName();
-			if(in_array($a, $this->isplayingrbh) || array_key_exists($a, $this->iswaitingrbh))
-			{
-				return $event->setCancelled();
+				$event->setCancelled(); # cancels damage
 			}
 		}
 	}
@@ -248,28 +210,21 @@ class GameEars implements Listener{
 		if ($event->getEntity() instanceof Player) 
 		{
 			$player = $event->getEntity();
-			$from = $event->getOrigin()->getFolderName();
+			#$from = $event->getOrigin()->getFolderName();
 			$to = $event->getTarget()->getFolderName();
-			if($this->arena == $from && $this->arena != $to)
+			if(array_key_exists($player->getName(), $this->main->gameSession))
 			{
-				$event->getEntity()->setGameMode(2);
-				$this->leaveArena($player);
-				$this->cleanPlayer($player);
-				return true;
+				$this->main->removefromgame($player->getName(), $this->main->gameSession[$player->getName()]);
+				return;
 			}
-			if($this->arena == $to)
+			if($this->main->arenadata->worldExists($to))
 			{
-				switch($this->gameState)
+				if($this->main->running[$to]["phase"] == "WAIT")
 				{
-					case 1:
-						$this->summon($player, "waiting");
-					break;
-					
-					case 2:
-						$player->sendMessage($this->prefix . $this->config->getNested("messages.game-running"));
-						return $event->setCancelled();
-					break;
-					
+					$this->main->summon($player, $this->main->running[$to]["game"]);
+				} else {
+					$player->sendMessage($this->main->prefix . $this->config->getNested("messages.game-running"));
+					$event->setCancelled();
 				}
 			}
 		}
@@ -277,14 +232,15 @@ class GameEars implements Listener{
 	
 	public function testingCommands(PlayerCommandPreprocessEvent $event)
 	{
-		if($event->getPlayer()->isLoggedIn == false)
+		$name = $event->getPlayer()->getName();
+		if(array_key_exists($name, $this->main->gameSession))
 		{
-				$command = explode(" ", $event->getMessage());
-				if($command[0] == "/login" || $command[0] == "/register") return;
-				$event->setCancelled();
-				$event->getPlayer()->sendMessage($this->main->config->getNested("otherMessages.notLoggedIn"));
+			$command = explode(" ", $event->getMessage());
+			if($command[0] == "/quithns") return;
+			$event->getPlayer()->sendMessage($this->main->prefix . $this->main->config->getNested("messages.cantUseCmd"));
+			$event->setCancelled();
 		}
-	}*/
+	}
 }
 
 ?>

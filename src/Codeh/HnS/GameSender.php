@@ -22,9 +22,6 @@ class GameSender extends \pocketmine\scheduler\Task
 		{
 			foreach($running as $arena)
 			{
-				#$timeToPlay = $arena["play-time"];
-				#$timeToWait = $arena["wait-time"];
-				#$timeToHide = $arena["hide-time"];
 				$game = $arena["game"];
 				$arenaworld = $this->main->arenadata->getWorld($game);
 				if(($levelArena = $this->main->getServer()->getLevelByName($arenaworld)) instanceof Level)
@@ -34,14 +31,12 @@ class GameSender extends \pocketmine\scheduler\Task
 					$minplayer = $this->main->arenadata->getMin($game);
 					if($playercount == 0)
 					{
-						if($arena["wait-time"] <> $this->main->waitTime) $arena["wait-time"] = $this->main->waitTime;
-						if($arena["hide-time"] <> $this->main->hideTime) $arena["hide-time"] = $this->main->hideTime;
-						if($arena["play-time"] <> $this->main->playTime) $arena["play-time"] = $this->main->playTime;
-						if($phase !== "WAIT") $arena["phase"] = "WAIT";
+						if($arena["wait-time"] <> $this->main->waitTime) $this->main->initGame($game);
+						if($arena["hide-time"] <> $this->main->hideTime) $this->main->initGame($game);
+						if($arena["play-time"] <> $this->main->playTime) $this->main->initGame($game);
 					} else {
-						if($playercount >= $minplayer)
+						if($playercount >= $minplayer) #($playercount >= 1)
 						{
-							$plist = $this->main->arenas[$game];
 							switch($phase)
 							{
 								case "WAIT":
@@ -50,7 +45,7 @@ class GameSender extends \pocketmine\scheduler\Task
 										switch($arena["wait-time"])
 										{
 											
-											case 9:
+											case 8:
 												foreach($levelArena->getPlayers() as $p)
 												{
 													$p->sendMessage($this->main->prefix . " > §a Game will start soon!");
@@ -63,56 +58,72 @@ class GameSender extends \pocketmine\scheduler\Task
 													$p->setGameMode(2);
 												}
 											break;
-											case 5:
+											case 6:
 												foreach($levelArena->getPlayers() as $p)
 												{
 													$p->addTitle(TextFormat::BOLD. TextFormat::GREEN . "READY", "§cO O O O O O O O O");
 												}
 											break;
-											case 4:
+											case 5:
 												foreach($levelArena->getPlayers() as $p)
 												{
 													$p->addTitle(TextFormat::BOLD. TextFormat::GREEN . "READY", "§aO §cO O O O O O O §aO");
 												}
 												
 											break;
-											case 3:
+											case 4:
 												foreach($levelArena->getPlayers() as $p)
 												{
 													$p->addTitle(TextFormat::BOLD. TextFormat::GREEN . "READY", "§aO O §cO O O O O §aO O");
 												}
-												
+												shuffle($this->main->arenas[$game]["waiting"]); # First Shuffle
 											break;
-											case 2:
+											case 3:
 												foreach($levelArena->getPlayers() as $p)
 												{
 													$p->addTitle(TextFormat::BOLD. TextFormat::GREEN . "READY","§aO O O §cO O O §aO O O ");
 												}
 											break;
-											case 1:
+											case 2:
 												foreach($levelArena->getPlayers() as $p)
 												{
-													$player->addTitle(TextFormat::BOLD. TextFormat::GREEN . "READY", "§aO O O O §cO §aO O O O");
-													
+													$p->addTitle(TextFormat::BOLD. TextFormat::GREEN . "READY", "§aO O O O §cO §aO O O O");
 												}
+												shuffle($this->main->arenas[$game]["waiting"]); # Second Shuffle
 											break;
 											
-											case 0:
+											case 1:
 												foreach($levelArena->getPlayers() as $p)
 												{
 													$p->addTitle(TextFormat::BOLD. TextFormat::GREEN . "HIDE", "§aO O O O O O O O O");
 												}
-												shuffle($plist["waiting"]);
-												$arena["phase"] = "HIDE";
+												foreach($this->main->arenas[$game]["waiting"] as $n)
+												{
+													$pObj = Server::getInstance()->getPlayer($n);
+													if(count($this->main->arenas[$game]["waiting"]) > 1)
+													{
+														$pObj->sendMessage($this->main->prefix. TextFormat::GREEN . " > You are a Hider!");
+														unset($this->main->arenas[$game]["waiting"][ $pObj->getName() ]);
+														$this->main->summon($pObj, $game, "hider");
+													} else {
+														$pObj->sendMessage($this->main->prefix. TextFormat::RED . " > You are the first Seeker!");
+														unset($this->main->arenas[$game]["waiting"][ $pObj->getName() ]);
+														$this->main->summon($pObj, $game, "seeker");
+													}
+													$pObj->setNameTagVisible(false); # Should Hide the name
+												}
+												
+												# -- Change Game Phase -- #
+												$this->main->running[$game]["phase"] = "HIDE";
 											break;
-
-											default:
-											foreach($levelArena->getPlayers() as $p)
-											{
-												$p->sendPopup("§l§7[ §f". $arena["wait-time"] ." seconds to start §7]");
-											}
 										}
-										$arena["wait-time"] -= 1;
+
+										foreach($levelArena->getPlayers() as $p)
+										{
+											$p->sendTip("§l§7[ §f". $arena["wait-time"] ." seconds to start §7]");
+										}
+
+										$this->main->running[$game]["wait-time"] -= 1;
 									}
 								break;
 								case "HIDE":
@@ -120,42 +131,67 @@ class GameSender extends \pocketmine\scheduler\Task
 									{
 										if($arena["hide-time"] == 1)
 										{
-											$arena["phase"] = "PLAY";
+											# -- Change Game Phase -- #
+											$this->main->running[$game]["phase"] = "PLAY";
 										} else {
-											if($arena["hide-time"] == ($this->main->hideTime - 1))
+											switch($arena["hide-time"])
 											{
-												$seeker = $plist["waiting"][0]; # take the first one
-												unset($plist["waiting"][$seeker]);
-												$this->main->summon(Server::getInstance()->getPlayer($seeker), $game, "seeker");
-											}
-											
-											if($arena["hide-time"] == ($this->main->hideTime - 5))
-											{
-												foreach($plist["waiting"] as $n)
-												{
-													$pObj = Server::getInstance()->getPlayer($n);
-													unset($plist["waiting"][ $pObj->getName() ]);
-													$this->main->summon($pObj, $arena, "seeker");
-												}
-											}
-											
-											foreach($levelArena->getPlayers() as $p)
-											{
-												$p->addTitle(TextFormat::BOLD . TextFormat::GREEN . "H I D E", $arena["hide-time"] . " seconds to release the seeker");
+												case 3: case 2: case 1:
+													foreach($levelArena->getPlayers() as $p) {
+														$p->addTitle(TextFormat::BOLD . TextFormat::GREEN . $arena["hide-time"], "Seconds left to hide");
+													}
+												break;
+												default:
+													foreach($levelArena->getPlayers() as $p) {
+														$p->sendTip(TextFormat::BOLD . TextFormat::YELLOW . $arena["hide-time"] . "s to hide. Quick!");
+													}
 											}
 										}
-										$arena["hide-time"] -= 1;
+										$this->main->running[$game]["hide-time"] -= 1;
 									}
 								break;
 								case "PLAY":
-										#$aop = count($levelArena->getPlayers());
-										# TO - DO
 										$time = $arena["play-time"];
 										$mins = floor($time / 60 % 60);
 										$secs = ($s = floor($time % 60)) < 10 ? "0" . $s : $s;
-										
-										if($playercount >= 2)
+										if($playercount >= $minplayer) #($playercount >= 1) # ($playercount >= $minplayer)
 										{
+											$hcount = count($this->main->arenas[$game]["hiders"]);
+											$scount = count($this->main->arenas[$game]["seekers"]);
+											if($hcount == 0 && $scount >= 1)
+											{
+												$this->main->concludeGame($game, "S", $this->main->arenas[$game]["seekers"]);
+												if($this->main->config->get("auto-rejoin"))
+												{
+													$this->main->initGame($game);
+													foreach($levelArena->getPlayers() as $pl)
+													{
+														$this->main->summon($pl, $game, "waiting");
+													}
+												} else {
+													foreach($levelArena->getPlayers() as $pl)
+													{
+														$this->main->leaveArena($pl, $game, true);
+													}
+												}
+											}
+											if($scount == 0 && $hcount >= 1)
+											{
+												$this->main->concludeGame($game, "H", $this->main->arenas[$game]["hiders"]);
+												if($this->main->config->get("auto-rejoin"))
+												{
+													$this->main->initGame($game);
+													foreach($levelArena->getPlayers() as $pl)
+													{
+														$this->main->summon($pl, $game, "waiting");
+													}
+												} else {
+													foreach($levelArena->getPlayers() as $pl)
+													{
+														$this->main->leaveArena($pl, $game, true);
+													}
+												}
+											}
 											switch($arena["play-time"])
 											{
 												case 179:
@@ -168,56 +204,40 @@ class GameSender extends \pocketmine\scheduler\Task
 												if($arena["play-time"] <= 0)
 												{
 													#game
-													$this->main->announceWinner($arena);
+													$this->main->concludeGame($arena);
 													$spawn = $this->main->getServer()->getDefaultLevel()->getSafeSpawn();
 													$this->main->getServer()->getDefaultLevel()->loadChunk($spawn->getX(), $spawn->getZ());
 													foreach($levelArena->getPlayers() as $pl)
 													{
 														$pl->addTitle("§lGame Over","§cYou have played on: §a" . $game);
-														$pl->setHealth(20);
-														$this->main->leaveArena($pl);
+														$this->main->leaveArena($pl, $game, true);
 													}
 												} else {
 													foreach($levelArena->getPlayers() as $pla)
 													{
-														$pla->sendTip("§l§fSeekers: " . count($plist["seekers"]) . " : Hiders: " . count($plist["hiders"]));
+														$pla->sendTip("§l§fSeekers: " . $scount . " : Hiders: " . $hcount);
 														$pla->sendPopup("§l§7Remaing time: §b".$mins. "§f : §b" .$secs);
 													}
 												}
 											}
+										} else {
+											foreach($levelArena->getPlayers() as $pl)
+											{
+												$pl->addTitle("§lGame Over","§cToo few players to continue" . $game);
+												$this->main->leaveArena( $pl , $game, true);
+											}
 										}
-										$arena["play-time"] -= 1;
+										$this->main->running[$game]["play-time"] -= 1;
 								break;
 							}
-							
 						} else {
-							if($arena["wait-time"] <= 0)
+							foreach($levelArena->getPlayers() as $pl)
 							{
-								foreach($levelArena->getPlayers() as $pl)
-								{
-									$this->main->announceWinner($arena, $pl->getName());
-									$pl->setHealth(20);
-									$this->main->leaveArena($pl);
-									$this->main->api->addMoney($pl->getName(), mt_rand(390, 408));//bullshit
-									$this->main->givePrize($pl);
-									//$this->getResetmap()->reload($levelArena);
-								}
-								if($arena["wait-time"] <> $this->main->waitTime) $arena["wait-time"] = $this->main->waitTime;
-								if($arena["hide-time"] <> $this->main->hideTime) $arena["hide-time"] = $this->main->hideTime;
-								if($arena["play-time"] <> $this->main->playTime) $arena["play-time"] = $this->main->playTime;
-								if($phase !== "WAIT") $arena["phase"] = "WAIT";
-							} else {
-								foreach($levelArena->getPlayers() as $pl)
-								{
-									$pl->addTitle("","§e§l[ §7Requires ". $minplayer ." or more Player(s)§e ]");
-								}
-								if($arena["wait-time"] <> $this->main->waitTime) $arena["wait-time"] = $this->main->waitTime;
-								if($arena["hide-time"] <> $this->main->hideTime) $arena["hide-time"] = $this->main->hideTime;
-								if($arena["play-time"] <> $this->main->playTime) $arena["play-time"] = $this->main->playTime;
-								if($phase !== "WAIT") $arena["phase"] = "WAIT";
+								$pl->sendTip("§f>> §8/quithns - to leave the game §f<<");
+								$pl->sendPopup("§l§bRequires {$minplayer} or more players to start!");
 							}
 						}
-					} # to do not working
+					}
 				}
 			}
 		}

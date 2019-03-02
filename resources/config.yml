@@ -1,7 +1,11 @@
+# set to false to disable the game
 engine: true
 
 # set this to false when you are not going to add more arena, will improve performance
 development-mode: true
+
+# set to false to cancel auto joining back to the game after it
+auto-rejoin: true
 
 game:
   prefix: "Hide N Seek"
@@ -16,7 +20,9 @@ reward:
   commands: []
 
 messages:
-   teamWon: "{team} won the hide and seek"
+   teamWon: "{team} won the hide and seek in {arena} arena"
    seeker-found: "{player} found you, lmao"
-   hider-found: "you found {player}"
-   game-running: "sorry the game is already running"
+   hider-found: "You found {player}"
+   game-running: "Sorry the game is already running"
+   wrongUsage: " Wrong parameters, please use /hns help"
+   cantUseCmd: " Please use /quithns to use commands"

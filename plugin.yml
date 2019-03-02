@@ -14,3 +14,6 @@ commands:
     quithns:
         usage: /quithns
         description: Quit a Hide and Seek game
+    randomhns:
+        usage: /randomhns
+        description: Join a random H and S game

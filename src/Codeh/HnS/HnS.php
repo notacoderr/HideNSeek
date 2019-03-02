@@ -62,7 +62,7 @@ class HnS extends PluginBase
 		
 		foreach($this->arenadata->getAllGames() as $g => $w) {
 			if(file_exists($this->getServer()->getDataPath() . "/worlds/" . $w)) {
-				if(!$w instanceof Level) $this->getServer()->loadLevel($w);
+				if(!$this->getServer()->isLevelLoaded($w)) $this->getServer()->loadLevel($w);
 				$this->initGame($g);
 				$this->getLogger()->info($this->prefix . TextFormat::GREEN . " > Game: " . $g . " has been loaded");
 			} else {
@@ -91,7 +91,7 @@ class HnS extends PluginBase
 					 "<--------------------------------->" . TextFormat::EOL . 
 				     TextFormat::YELLOW . "You cannot chat, but you can use commands." . TextFormat::EOL .
 					 TextFormat::YELLOW . "the commands below will only work without /" . TextFormat::EOL . TextFormat::RESET .
-					 "world - set where the game world is" . TextFormat::EOL .
+					 "world - set your current world as the game world" . TextFormat::EOL .
 					 "lobbyspawn - set where the lobby is" . TextFormat::EOL .
 				     "seekerspawn - set where the seeker will spawn" . TextFormat::EOL .
 				     "hiderspawn - set where the hiders will spawn". TextFormat::EOL .
@@ -111,8 +111,13 @@ class HnS extends PluginBase
 			case "world":
 				if(file_exists($this->getServer()->getDataPath() . "/worlds/" . $data))
 				{
-					$this->newArena[$game]["world"] = $data;
-					$player->sendMessage($this->prefix . " > world has been saved");
+					if($this->arenadata->worldExists($data))
+					{
+						$player->sendMessage($this->prefix . " > Sorry! {$data} is already registered with other arena");
+					} else {
+						$this->newArena[$game]["world"] = $data;
+						$player->sendMessage($this->prefix . " > world has been saved");
+					}
 				} else {
 					$player->sendMessage($this->prefix . " > ERROR missing world.");
 				}
@@ -180,17 +185,17 @@ class HnS extends PluginBase
 		$this->playercounts[ $game ] = 0;
 		
 		$this->running[ $game ] = [
-		"game" => $game,
-		"phase" => "WAIT",
-		"wait-time" => $this->waitTime,
-		"hide-time" => $this->hideTime,
-		"play-time" => $this->playTime
+			"game" => $game,
+			"phase" => "WAIT",
+			"wait-time" => $this->waitTime,
+			"hide-time" => $this->hideTime,
+			"play-time" => $this->playTime
 		];
 		
 		$this->arenas[ $game ] = [
-		"waiting" => [],
-		"seekers" => [],
-		"hiders" => []
+			"waiting" => [],
+			"seekers" => [],
+			"hiders" => []
 		];
 	}
 
@@ -240,6 +245,7 @@ class HnS extends PluginBase
 									if(array_key_exists($args[1], $this->arenas))
 									{
 										$this->settingSign[ $player->getName() ] = $args[1];
+										$player->sendMessage($this->prefix . " > Break a sign to register it, you can register multiple signs");
 										return true;
 									} else {
 										$player->sendMessage($this->prefix . $this->config->getNested("messages.wrongUsage"));
@@ -266,18 +272,41 @@ class HnS extends PluginBase
 					}
 				break;
 					
-				case "joinhns":
+				case "randomhns":
 					if(array_key_exists($player->getName(), $this->gameSession) == false)
 					{
-						$this->summon($player, "waiting");
+						#$this->summon($player, "waiting");
+						if(!empty($this->running))
+						{
+							foreach($this->running as $x)
+							{
+								if($x["phase"] == "WAIT")
+								{
+									$this->summon($player, $x["game"], "waiting");
+									return true;
+								}
+							}
+						} else {
+							$player->sendMessage($this->prefix . " > There are no registered game");
+						}
 					}
+					return false;
 				break;
 					
 				case "starthns": //Force the game to start immediately
-					if($player->isOp() and $this->waitTime > 11)
+					if($player->isOp())
 					{
-						$player->sendMessage($this->prefix . " > §aStarting in 10 seconds...");
-						$this->waitTime = 11; //needs to be 11 bc of how ticking works
+						if(array_key_exists($player->getName(), $this->gameSession))
+						{
+							$session = $this->gameSession[ $player->getName() ];
+							if(($time = $this->running[$session]["wait-time"]) > 11)
+							{
+								$player->sendMessage($this->prefix . " > §aStarting in 10 seconds...");
+								$this->running[$session]["wait-time"] = 11; //needs to be 11 bc of how ticking works
+							}
+						} else {
+							$player->sendMessage($this->prefix . " > You are not in a Hide N Seek game");
+						}
 					}
 				break;
 				default:
@@ -287,32 +316,18 @@ class HnS extends PluginBase
 		} 
 	}
 
-	public function announceWinner(String $arena, $name = null)
+	public function concludeGame(String $arena, string $team, array $names)
 	{
-		if(is_null($name))
+		$msg = $this->config->getNested("messages.teamWon");
+		$msg = str_replace("{team}", $team == "S" ? "Seekers" : "Hiders", $msg);
+		$msg = str_replace("{arena}", $arena, $msg);
+		$this->getServer()->broadcastMessage($msg);
+		foreach($names as $n)
 		{
-			$levelArena = $this->getServer()->getLevelByName($arena);
-			$plrs = $levelArena->getPlayers();
-			arsort($this->kills);
-			foreach($this->kills as $pln => $k)
+			if(($pObj = $this->getServer()->getPlayer($n)) instanceof Player)
 			{
-				if($this->getServer()->getPlayer($pln)->getLevel()->getFolderName() == $arena)
-				{
-					$this->api->addMoney($pln , mt_rand(390, 408));
-					$this->givePrize( $this->getServer()->getPlayer($pln) );
-					foreach($this->getServer()->getOnlinePlayers() as $ppl)
-					{
-						$ppl->sendMessage($this->prefix . " • §l§b".$pln."§f won in ".$arena.", with §b".$k." §fkills");
-					}
-					return true; //stops at first highest player
-				}
+				$this->givePrize($pObj);
 			}
-		} else {
-			foreach($this->getServer()->getOnlinePlayers() as $ppl)
-			{
-				$ppl->sendMessage($this->prefix . " • §l§b".$name."§f won in ".$arena);
-			}
-			return true;
 		}
 	}
 	
@@ -338,14 +353,11 @@ class HnS extends PluginBase
 			$this->getServer()->getDefaultLevel()->loadChunk($spawn->getFloorX(), $spawn->getFloorZ());
 			$player->teleport($spawn , 0, 0);
 		}		
-		#$player->setGameMode(2);
+
 		$player->setFood(20);
 		$player->setHealth(20);
 		
-		#$this->cleanPlayer($player);
-		$this->playercounts[$game] -= 1;
 		$this->removefromgame($player->getName(), $game);
-		#$this->arenadata->reducePlayerCount($this->gameSession($player->getName()));
 	}
 	
 	public function removefromgame(string $playername, string $game)
@@ -363,7 +375,12 @@ class HnS extends PluginBase
 			unset($this->gameSession[ $playername ]);
 		}
 		
-		$this->cleanPlayer($this->getServer()->getPlayer( $playername ));
+		$this->playercounts[$game] -= 1;
+		
+		if(($pObj = $this->getServer()->getPlayer( $playername )->isOnline() ))
+		{
+			$this->cleanPlayer($this->getServer()->getPlayer( $playername ));
+		}
 	}
 	
 	private function cleanPlayer($player) : void
@@ -371,7 +388,13 @@ class HnS extends PluginBase
 		$player->getInventory()->clearAll();
 		$player->getCursorInventory()->clearAll();
 		$player->getArmorInventory()->clearAll();
-		#$player->setNameTag( $this->getServer()->getPluginManager()->getPlugin('PureChat')->getNametag($player) );
+
+		if(!is_null($pc = $this->getServer()->getPluginManager()->getPlugin('PureChat')))
+		{
+			$player->setNameTag( $pc->getNametag($player) );
+		}
+
+		$player->setNameTagVisible(); # should turn name back again
 	}
 
 	public function summon($player, string $game, string $type = "waiting")
@@ -397,9 +420,6 @@ class HnS extends PluginBase
 				$this->setSeeker($player->getName(), $game);
 			break;
 		}
-		#var_dump($this->arenas[$game]);
-		#var_dump($this->gameSession);
-		#var_dump($this->running);
 		$target = new Position($point[0] + 0.5 , $point[1] , $point[2] + 0.5 , $level);
 		$player->teleport($target, 0, 0);
 		$player->setFood(20);
