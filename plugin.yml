@@ -1,7 +1,7 @@
 name: HideNSeek
-main: Codeh\Hns\Hns
+main: Codeh\HnS\HnS
 author: CodeBreak
-version: 1.0.1-indev
+version: 1.0.7-indev
 api: [3.0.0, 3.5.2, 4.0.0]
 
 commands:

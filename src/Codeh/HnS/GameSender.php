@@ -17,7 +17,7 @@ class GameSender extends \pocketmine\scheduler\Task
 	public function onRun($tick)
 	{
 		$running = $this->main->running;
-    
+
 		if(!empty($running))
 		{
 			foreach($running as $arena)
@@ -34,200 +34,175 @@ class GameSender extends \pocketmine\scheduler\Task
 						if($arena["wait-time"] <> $this->main->waitTime) $this->main->initGame($game);
 						if($arena["hide-time"] <> $this->main->hideTime) $this->main->initGame($game);
 						if($arena["play-time"] <> $this->main->playTime) $this->main->initGame($game);
+						if($arena["reset-time"] <> 10) $this->main->initGame($game);
 					} else {
-						if($playercount >= $minplayer) #($playercount >= 1)
+						if($playercount >= $minplayer)
 						{
 							switch($phase)
 							{
 								case "WAIT":
-									if($arena["wait-time"] > 0) //TO DO fix player count and timer
+									$time = $arena["wait-time"];
+									if($time >= 1)
 									{
-										switch($arena["wait-time"])
+										switch($time)
 										{
-											
-											case 8:
-												foreach($levelArena->getPlayers() as $p)
-												{
-													$p->sendMessage($this->main->prefix . " > §a Game will start soon!");
-												}
+											case 10:
+												$this->main->getServer()->broadcastMessage($this->main->prefix . " > " . $this->main->config->getNested("messages.game-start-soon"), $levelArena->getPlayers());
 											break;
+											
+											case 9: case 8: break;
 											
 											case 7:
-												foreach($levelArena->getPlayers() as $p)
-												{
-													$p->setGameMode(2);
-												}
+												$this->main->getServer()->broadcastTitle("§eREADY", "§cO O O O O O O O O", -1, 15, -1, $levelArena->getPlayers());
+												$this->main->playSound($levelArena->getPlayers());
 											break;
+											
 											case 6:
-												foreach($levelArena->getPlayers() as $p)
-												{
-													$p->addTitle(TextFormat::BOLD. TextFormat::GREEN . "READY", "§cO O O O O O O O O");
-												}
+												$this->main->getServer()->broadcastTitle("§eREADY", "§aO §cO O O O O O O §aO", -1, 15, -1, $levelArena->getPlayers());
+												$this->main->playSound($levelArena->getPlayers());
 											break;
+											
 											case 5:
-												foreach($levelArena->getPlayers() as $p)
-												{
-													$p->addTitle(TextFormat::BOLD. TextFormat::GREEN . "READY", "§aO §cO O O O O O O §aO");
-												}
-												
+												$this->main->getServer()->broadcastTitle("§eREADY", "§aO O §cO O O O O §aO O", -1, 15, -1, $levelArena->getPlayers());
+												$this->main->playSound($levelArena->getPlayers());
 											break;
+											
 											case 4:
-												foreach($levelArena->getPlayers() as $p)
-												{
-													$p->addTitle(TextFormat::BOLD. TextFormat::GREEN . "READY", "§aO O §cO O O O O §aO O");
-												}
-												shuffle($this->main->arenas[$game]["waiting"]); # First Shuffle
+												$this->main->getServer()->broadcastTitle("§6READY", "§aO O O §cO O O §aO O O ", -1, 15, -1, $levelArena->getPlayers());
+												$this->main->playSound($levelArena->getPlayers());
 											break;
+											
 											case 3:
-												foreach($levelArena->getPlayers() as $p)
-												{
-													$p->addTitle(TextFormat::BOLD. TextFormat::GREEN . "READY","§aO O O §cO O O §aO O O ");
-												}
+												$this->main->getServer()->broadcastTitle("§6READY", "§aO O O O §cO §aO O O O", -1, 15, -1, $levelArena->getPlayers());
+												$this->main->playSound($levelArena->getPlayers());
 											break;
+											
 											case 2:
-												foreach($levelArena->getPlayers() as $p)
-												{
-													$p->addTitle(TextFormat::BOLD. TextFormat::GREEN . "READY", "§aO O O O §cO §aO O O O");
-												}
-												shuffle($this->main->arenas[$game]["waiting"]); # Second Shuffle
+												$this->main->getServer()->broadcastTitle("§6READY", "§aO O O O O O O O O", -1, 15, -1, $levelArena->getPlayers());
+												$this->main->teams->shuffleTeams($game); # shuffles
+												$this->main->playSound($levelArena->getPlayers());
 											break;
 											
 											case 1:
-												foreach($levelArena->getPlayers() as $p)
-												{
-													$p->addTitle(TextFormat::BOLD. TextFormat::GREEN . "HIDE", "§aO O O O O O O O O");
-												}
-												foreach($this->main->arenas[$game]["waiting"] as $n)
-												{
-													$pObj = Server::getInstance()->getPlayer($n);
-													if(count($this->main->arenas[$game]["waiting"]) > 1)
-													{
-														$pObj->sendMessage($this->main->prefix. TextFormat::GREEN . " > You are a Hider!");
-														unset($this->main->arenas[$game]["waiting"][ $pObj->getName() ]);
-														$this->main->summon($pObj, $game, "hider");
-													} else {
-														$pObj->sendMessage($this->main->prefix. TextFormat::RED . " > You are the first Seeker!");
-														unset($this->main->arenas[$game]["waiting"][ $pObj->getName() ]);
-														$this->main->summon($pObj, $game, "seeker");
-													}
-													$pObj->setNameTagVisible(false); # Should Hide the name
-												}
-												
-												# -- Change Game Phase -- #
-												$this->main->running[$game]["phase"] = "HIDE";
+												$this->main->getServer()->broadcastTitle("§aH I D E", "§7" .$arena["hide-time"]. "s to Hide", -1, 10, -1, $levelArena->getPlayers());
+												# -- Assigns a seeker and the rest as hiders -- #
+												$this->main->teams->assignPlayers($game);
+												$this->main->playSound($levelArena->getPlayers(), 3);
 											break;
+											default:
+											$this->main->getServer()->broadcastTip("§7[ §f{$time} seconds to start §7]", $levelArena->getPlayers());
 										}
-
-										foreach($levelArena->getPlayers() as $p)
-										{
-											$p->sendTip("§l§7[ §f". $arena["wait-time"] ." seconds to start §7]");
-										}
-
 										$this->main->running[$game]["wait-time"] -= 1;
+									} else {
+										# -- Change Game Phase -- #
+										$this->main->running[$game]["phase"] = "HIDE";
 									}
 								break;
 								case "HIDE":
-									if($arena["hide-time"] > 0)
+									$time = $arena["hide-time"];
+									if($time >= 1)
 									{
-										if($arena["hide-time"] == 1)
+										switch($time)
 										{
-											# -- Change Game Phase -- #
-											$this->main->running[$game]["phase"] = "PLAY";
-										} else {
-											switch($arena["hide-time"])
-											{
-												case 3: case 2: case 1:
-													foreach($levelArena->getPlayers() as $p) {
-														$p->addTitle(TextFormat::BOLD . TextFormat::GREEN . $arena["hide-time"], "Seconds left to hide");
-													}
-												break;
-												default:
-													foreach($levelArena->getPlayers() as $p) {
-														$p->sendTip(TextFormat::BOLD . TextFormat::YELLOW . $arena["hide-time"] . "s to hide. Quick!");
-													}
-											}
+											case 5: case 4: case 3: case 2: case 1:
+												$this->main->getServer()->broadcastTitle($time, "§cseconds left to hide", -1, 15, -1, $levelArena->getPlayers());
+												$s = ($time == 1) ? 2 : 4;
+												$this->main->playSound($levelArena->getPlayers(), $s);
+											break;
+											default:
+												$this->main->getServer()->broadcastTip("§7Releasing the Seeker in:§f {$time}s", $levelArena->getPlayers());
 										}
 										$this->main->running[$game]["hide-time"] -= 1;
+									} else {
+										$this->main->getServer()->broadcastTitle("§bGood luck!", "-=-=-=-=-=-=-=-=-=-", -1, 10, -1, $levelArena->getPlayers());
+										$this->main->playSound($levelArena->getPlayers(), $s, 3);
+										# -- Change Game Phase -- #
+										$this->main->running[$game]["phase"] = "PLAY";
 									}
 								break;
 								case "PLAY":
 										$time = $arena["play-time"];
-										$mins = floor($time / 60 % 60);
-										$secs = ($s = floor($time % 60)) < 10 ? "0" . $s : $s;
-										if($playercount >= $minplayer) #($playercount >= 1) # ($playercount >= $minplayer)
+										if($time >= 1)
 										{
-											$hcount = count($this->main->arenas[$game]["hiders"]);
-											$scount = count($this->main->arenas[$game]["seekers"]);
-											if($hcount == 0 && $scount >= 1)
+											$mins = floor($time / 60 % 60);
+											$secs = ($s = floor($time % 60)) < 10 ? "0" . $s : $s;
+											if($playercount >= $minplayer)
 											{
-												$this->main->concludeGame($game, "S", $this->main->arenas[$game]["seekers"]);
-												if($this->main->config->get("auto-rejoin"))
+												switch($time)
 												{
-													$this->main->initGame($game);
-													foreach($levelArena->getPlayers() as $pl)
-													{
-														$this->main->summon($pl, $game, "waiting");
-													}
-												} else {
-													foreach($levelArena->getPlayers() as $pl)
-													{
-														$this->main->leaveArena($pl, $game, true);
+													case 179:
+														$this->main->getServer()->broadcastTitle("§7Countdown", "§b".$mins. "§f:§b" .$secs. "§f remaining", -1, 15, -1, $levelArena->getPlayers());
+													break;
+													
+													default:
+													$hcount = $this->main->teams->countTeam($game, "hider");
+													$scount = $this->main->teams->countTeam($game, "seeker");
+													switch(true) {
+														case ($hcount == 0 && $scount >= 1) :
+															
+															foreach($this->main->teams->game[$game] as $name => $team) {
+																if($team == "seeker") $this->main->givePrize($name, $team);
+															}
+															$this->main->announceWinner($game, "S");
+															$this->main->running[$game]["phase"] = "RESET";
+															$this->main->playSound($levelArena->getPlayers(), 1);
+														break;
+														
+														case ($scount == 0 && $hcount >= 1) :
+															foreach($this->main->teams->game[$game] as $name => $team) {
+																if($team == "hider") $this->main->givePrize($name, $team);
+															}
+															$this->main->announceWinner($game, "H");
+															$this->main->running[$game]["phase"] = "RESET";
+															$this->main->playSound($levelArena->getPlayers(), 1);
+														break;
+														
+														default:
+														foreach($levelArena->getPlayers() as $pla)
+														{
+															$pla->sendTip("§l§fSeekers: " . $scount . " : Hiders: " . $hcount); # ima keep these rather than broadcastTip
+															$pla->sendPopup("§l§7Remaing time: §b".$mins. "§f : §b" .$secs);  # bc separating the broadcast means getting the level players again
+														}
 													}
 												}
+												$this->main->running[$game]["play-time"] -= 1;
+											} else {
+												$this->main->getServer()->broadcastMessage($this->main->prefix . " > " . $this->main->config->getNested("messages.game-few-players"), $levelArena->getPlayers());
+												$this->main->running[$game]["phase"] = "RESET";
 											}
-											if($scount == 0 && $hcount >= 1)
-											{
-												$this->main->concludeGame($game, "H", $this->main->arenas[$game]["hiders"]);
-												if($this->main->config->get("auto-rejoin"))
-												{
-													$this->main->initGame($game);
-													foreach($levelArena->getPlayers() as $pl)
-													{
-														$this->main->summon($pl, $game, "waiting");
-													}
-												} else {
-													foreach($levelArena->getPlayers() as $pl)
-													{
-														$this->main->leaveArena($pl, $game, true);
-													}
+										} else {
+											if($hcount >= 1) {
+												foreach($this->main->teams->game[$game] as $name => $team) {
+													if($team == "hider") $this->main->givePrize($name, $team);
 												}
+												$this->main->announceWinner($game, "H");
+												$this->main->running[$game]["phase"] = "RESET";
+												$this->main->playSound($levelArena->getPlayers(), 1);
 											}
-											switch($arena["play-time"])
+										}
+								break;
+								
+								case "RESET":
+									$time = $arena["reset-time"];
+									if($time >= 1) {
+										$this->main->getServer()->broadcastTip("§fGame resets in §f {$time} seconds", $levelArena->getPlayers());
+										$this->main->running[$game]["reset-time"] -= 1;
+									} else {
+										$this->main->playSound($levelArena->getPlayers(), 1);
+										$this->main->initGame($game);
+										if($this->main->config->get("auto-rejoin"))
+										{
+											foreach($levelArena->getPlayers() as $pl)
 											{
-												case 179:
-													foreach($levelArena->getPlayers() as $pl)
-													{
-														$pl->addTitle("§l§7Countdown", "§b§l".$mins. "§f:§b" .$secs. "§f remaining");
-													}
-												break;
-												default:
-												if($arena["play-time"] <= 0)
-												{
-													#game
-													$this->main->concludeGame($arena);
-													$spawn = $this->main->getServer()->getDefaultLevel()->getSafeSpawn();
-													$this->main->getServer()->getDefaultLevel()->loadChunk($spawn->getX(), $spawn->getZ());
-													foreach($levelArena->getPlayers() as $pl)
-													{
-														$pl->addTitle("§lGame Over","§cYou have played on: §a" . $game);
-														$this->main->leaveArena($pl, $game, true);
-													}
-												} else {
-													foreach($levelArena->getPlayers() as $pla)
-													{
-														$pla->sendTip("§l§fSeekers: " . $scount . " : Hiders: " . $hcount);
-														$pla->sendPopup("§l§7Remaing time: §b".$mins. "§f : §b" .$secs);
-													}
-												}
+												$this->main->joinGame($pl, $game);
 											}
 										} else {
 											foreach($levelArena->getPlayers() as $pl)
 											{
-												$pl->addTitle("§lGame Over","§cToo few players to continue" . $game);
-												$this->main->leaveArena( $pl , $game, true);
+												$this->main->leaveArena($pl, $game, true);
 											}
 										}
-										$this->main->running[$game]["play-time"] -= 1;
+									}
 								break;
 							}
 						} else {

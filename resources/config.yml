@@ -16,13 +16,41 @@ game:
   
 reward:
   enable: true
-  money: 500
-  commands: []
+  # You can add more commands just follow the spacing and format, also without /
+  # I've chosed to set a higher prize for hider bc if it's equal, they could just give themselves in
+  # for equal prizes with their friends
+  h-commands:
+    - "givemoney {name} 1000"
+    - "tell {name} you won"
+
+  s-commands:
+    - "givemoney {name} 500"
+    - "tell {name} you won"
 
 messages:
-   teamWon: "{team} won the hide and seek in {arena} arena"
-   seeker-found: "{player} found you, lmao"
-   hider-found: "You found {player}"
-   game-running: "Sorry the game is already running"
-   wrongUsage: " Wrong parameters, please use /hns help"
-   cantUseCmd: " Please use /quithns to use commands"
+  FirstSeeker: "You are the first seeker"
+  AsHider: "You are a hider! go go go!"
+  
+  teamWon: "{team} won the hide and seek in {arena} arena"
+  
+  seeker-found: "{player} found you, lmao"
+  hider-found: "You found {player}"
+  
+  game-start-soon: "The Game will start soon"
+  game-few-players: "There are too few players to continue, game will reset"
+  game-running: "Sorry the game is already running"
+
+  wrongUsage: " Wrong parameters, please use /hns help"
+  cantUseCmd: " {cmd} is banned here, sorry!"
+   
+bannedCmds:
+  - /gmc
+  - /v
+  - /vanish
+  - /gmspc
+  - /gamemode
+  - /size
+  - /tp
+  - /tpa
+  - /tpall
+  - /tphere

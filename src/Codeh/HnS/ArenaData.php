@@ -96,6 +96,12 @@ class ArenaData {
 		return is_string($result);
 	}
 	
+	public function gameExists(string $game) : bool
+	{
+		$result = $this->db->query("SELECT * FROM games WHERE game = '$game';")->fetchArray(SQLITE3_ASSOC) ["game"];
+		return is_string($result);
+	}
+	
 	public function getWorld(string $game) : string
 	{
 		return $this->db->query("SELECT * FROM games WHERE game = '$game';")->fetchArray(SQLITE3_ASSOC) ["world"];

@@ -3,6 +3,7 @@
 namespace Codeh\HnS;
 
 use pocketmine\Server;
+use pocketmine\Player;
 
 use pocketmine\event\Listener;
 
@@ -11,6 +12,8 @@ use pocketmine\event\Listener;
 use pocketmine\event\player\PlayerQuitEvent;
 use pocketmine\event\player\PlayerMoveEvent;
 use pocketmine\event\player\PlayerChatEvent;
+use pocketmine\event\player\PlayerDeathEvent;
+use pocketmine\event\player\PlayerExhaustEvent;
 use pocketmine\event\player\PlayerInteractEvent;
 use pocketmine\event\player\PlayerCommandPreprocessEvent;
 
@@ -18,7 +21,7 @@ use pocketmine\event\block\BlockBreakEvent;
 #use pocketmine\event\block\BlockPlaceEvent;
 
 use pocketmine\event\entity\EntityDamageEvent;
-use pocketmine\event\entity\EntityDamageByEntityEvent;
+#use pocketmine\event\entity\EntityDamageByEntityEvent;
 use pocketmine\event\entity\EntityLevelChangeEvent;
 
 use pocketmine\item\Item;
@@ -62,7 +65,6 @@ class GameEars implements Listener{
 			#var_dump($this->main->newArena[$game]);
 				$a = $this->main->arenadata;
 				$n = $this->main->newArena;
-				$init = $this->main->arenas;
 				if($this->main->gameIsReady($game)) {
 					$a->saveGame($game, $n[$game]["world"]);
 					$a->setLobbySpawn($game, $n[$game]["lobbyspawn"]);
@@ -138,13 +140,13 @@ class GameEars implements Listener{
 			$text = $tile->getText();
 			if(TF::clean($text[0]) == $this->main->prefix)
 			{
-				if(array_key_exists(TF::clean($text[1]), $this->main->arenas))
+				if($this->main->arenadata->gameExists( TF::clean($text[1]) ))
 				{
 					if(strpos(TF::clean($text[3]), 'Waiting') !== false and TF::clean($text[2]) !== "F U L L")
 					{
 						if(array_key_exists($player->getName(), $this->main->gameSession) == false)
 						{
-							$this->main->summon($player, TF::clean($text[1]));
+							$this->main->joinGame($player, TF::clean($text[1]));
 							return;
 						} else {
 							$player->sendMessage($this->main->prefix . " > You are already in a game...");
@@ -160,7 +162,7 @@ class GameEars implements Listener{
 			}
 		}
 	}
-	
+
 	/*public function onJoin(PlayerJoinEvent $event) : void
 	{
 		$name = $event->getPlayer()->getName();
@@ -171,6 +173,69 @@ class GameEars implements Listener{
 	}
 	*/
 
+	public function onExhaust(PlayerExhaustEvent $event)
+	{
+		if(array_key_exists($event->getPlayer()->getName(), $this->main->gameSession))
+		{
+			$event->setCancelled();
+		}
+	}
+	
+	public function onDamage(EntityDamageEvent $event) 
+	{
+		if($event->getEntity() instanceof Player)
+		{
+			switch((int) $event->getCause()) {
+				case 1:
+					$seeker = $event->getDamager();
+					$hider = $event->getEntity();
+					
+					if(($seeker instanceof Player) == false) return;
+					#if(($hider instanceof Player) == false) return;
+
+						$seekerName = $seeker->getName();
+						$hiderName = $hider->getName();
+						
+					if(array_key_exists($seekerName, $this->main->gameSession) and array_key_exists($hiderName, $this->main->gameSession))
+					{
+						$game = $this->main->gameSession[$seekerName];
+						if($this->main->running[$game]["phase"] == "PLAY")
+						{
+							if($this->main->teams->sameTeam($game, $seekerName, $hiderName)) return;
+								
+							$this->main->teams->setTeamAs($game, $hiderName, "seeker"); # push into seekers
+								
+							$seeker->addTitle("", str_replace("{player}", $hiderName, $this->main->config->getNested("messages.hider-found")));
+							$hider->addTitle("", str_replace("{player}", $seekerName, $this->main->config->getNested("messages.seeker-found")));
+								
+							$particles = "pocketmine\\level\\particle\\HugeExplodeSeedParticle";
+							if (class_exists($particles))
+							{
+								$hider->getLevel()->addParticle(new $particles($hider->add(0, 2)));
+								$this->main->playSound(array($seeker, $hider), 2);
+							}
+						}
+						$event->setCancelled(); # cancels damage
+					}
+				break;
+				default:
+				if(array_key_exists($event->getEntity()->getName(), $this->main->gameSession))
+				{
+					$event->setCancelled();
+				}
+			}
+		}
+	}
+
+	public function onDeath(PlayerDeathEvent $event) : void
+	{
+		$name = $event->getPlayer()->getName();
+		if(array_key_exists($name, $this->main->gameSession))
+		{
+			$this->main->removefromgame($name, $this->main->gameSession[$name]);
+		}
+	}
+	
 	public function onQuit(PlayerQuitEvent $event) : void
 	{
 		$name = $event->getPlayer()->getName();
@@ -180,50 +245,43 @@ class GameEars implements Listener{
 		}
 	}
 	
-	public function onDamage(EntityDamageByEntityEvent $event)
-	{
-		if(($seeker = $event->getDamager()) instanceof Player && ($hider = $event->getEntity()) instanceof Player)
-		{
-			$seekerName = $seeker->getName();
-			$hiderName = $hider->getName();
-			if(array_key_exists($seekerName, $this->main->gameSession) && array_key_exists($hiderName, $this->main->gameSession))
-			{
-				$game = $this->main->gameSession[$seekerName];
-				if($this->main->running[$game]["phase"] == "PLAY")
-				{
-					if(in_array($seekerName, $this->main->arenas[$game]["seekers"]) == false) return;
-					if(in_array($hiderName, $this->main->arenas[$game]["hiders"]) == false) return;
-					
-					unset($this->main->arenas[$game]["hiders"][$hiderName]); # remove as hider
-					array_push($this->main->arenas[$game]["seekers"], $name); # push into seekers
-					
-					$seeker->addTitle("", str_replace("{player}", $hiderName, $this->main->config->getNested("messages.hider-found")));
-					$hider->addTitle("", str_replace("{player}", $seekerName, $this->main->config->getNested("messages.seeker-found")));
-				}
-				$event->setCancelled(); # cancels damage
-			}
-		}
-	}
-	
-	public function onTeleport(EntityLevelChangeEvent $event)
+	public function onLevelChange(EntityLevelChangeEvent $event)
 	{
 		if ($event->getEntity() instanceof Player) 
 		{
 			$player = $event->getEntity();
-			#$from = $event->getOrigin()->getFolderName();
+			$from = $event->getOrigin()->getFolderName();
 			$to = $event->getTarget()->getFolderName();
-			if(array_key_exists($player->getName(), $this->main->gameSession))
+			
+			if($this->main->arenadata->worldExists($from))
 			{
-				$this->main->removefromgame($player->getName(), $this->main->gameSession[$player->getName()]);
-				return;
+				if(array_key_exists($player->getName(), $this->main->gameSession))
+				{
+					$game = $this->main->gameSession[$player->getName()];
+					$this->main->removefromgame($player->getName(), $game);
+				}
 			}
+			
 			if($this->main->arenadata->worldExists($to))
 			{
-				if($this->main->running[$to]["phase"] == "WAIT")
+				$game = $this->main->gameSession[$player->getName()];
+				if($this->main->running[$game]["phase"] == "WAIT")
 				{
-					$this->main->summon($player, $this->main->running[$to]["game"]);
+					$this->main->joinGame($player, $game);
 				} else {
-					$player->sendMessage($this->main->prefix . $this->config->getNested("messages.game-running"));
+					$player->sendMessage($this->main->prefix . " > " . $this->config->getNested("messages.game-running"));
+					$event->setCancelled();
+				}
+			}
+		}
+	}
+	
+	public function onMove(PlayerMoveEvent $event) {
+		$username = $event->getPlayer()->getName();
+		if(array_key_exists($username, $this->main->gameSession)) {
+			$game = $this->main->gameSession[$username];
+			if($this->main->running[$game]["phase"] == "HIDE") {
+				if($this->main->teams->getTeam($game, $username) == "seeker") {
 					$event->setCancelled();
 				}
 			}
@@ -236,11 +294,14 @@ class GameEars implements Listener{
 		if(array_key_exists($name, $this->main->gameSession))
 		{
 			$command = explode(" ", $event->getMessage());
-			if($command[0] == "/quithns") return;
-			$event->getPlayer()->sendMessage($this->main->prefix . $this->main->config->getNested("messages.cantUseCmd"));
+			
+			if(in_array($command[0], $this->main->config->getNested("bannedCmds")) == false) return;
+			
+			$event->getPlayer()->sendMessage($this->main->prefix . " > " . str_replace("{cmd}", $command[0], $this->main->config->getNested("messages.cantUseCmd")));
 			$event->setCancelled();
 		}
 	}
+	
 }
 
 ?>
